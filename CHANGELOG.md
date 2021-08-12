@@ -3,6 +3,16 @@ x.y.z Release notes (yyyy-MM-dd)
 ### Enhancements
 * Add additional `observe` methods for Objects and RealmCollections which take a `PartialKeyPath` type key path parameter.
 * The release package once again contains Xcode 13 binaries for iOS.
+* ThreadSafeReference no longer pins the source transaction version for
+  anything other than a Results created by filtering a collection. This means
+  that holding on to thread-safe references to other things (such as Objects)
+  will no longer cause file size growth.
+* A ThreadSafeReference to a Results backed by a collection can now be created
+  inside a write transaction as long as the collection was not created in the
+  current write transaction.
+* Synchronized Realms are no longer opened twice, cutting the address space and
+  file descriptors used in half.
+  ([Core #4839](https://github.com/realm/realm-core/pull/4839))
 
 ### Fixed
 * `Map<Key, Value>` did not conform to `Codable`. ([Cocoa #7418](https://github.com/realm/realm-cocoa/pull/7418), since v10.8.0)
@@ -20,7 +30,7 @@ x.y.z Release notes (yyyy-MM-dd)
 * Xcode: 12.2-13.0 beta 5.
 
 ### Internal
-* Upgraded realm-core from ? to ?
+* Upgraded realm-core from 11.3.0 to 11.4.0
 
 10.13.0 Release notes (2021-08-26)
 =============================================================
