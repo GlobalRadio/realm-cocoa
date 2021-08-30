@@ -3,12 +3,14 @@ x.y.z Release notes (yyyy-MM-dd)
 ### Enhancements
 * Add additional `observe` methods for Objects and RealmCollections which take a `PartialKeyPath` type key path parameter.
 * The release package once again contains Xcode 13 binaries for iOS.
+* Added support for multi-user login on `@AsyncOpen` and `@AutoOpen`.
 
 ### Fixed
 * `Map<Key, Value>` did not conform to `Codable`. ([Cocoa #7418](https://github.com/realm/realm-cocoa/pull/7418), since v10.8.0)
 * Fixed "Invalid data type" assertion failure in the sync client when the
   client recieved an AddColumn instruction from the server for an AnyRealmValue
   property when that property already exists locally. ([Core #4873](https://github.com/realm/realm-core/issues/4873), since v10.8.0)
+* Fix Realm.Configuration overriding `syncConfiguration` related configurations for synced realms.
 
 <!-- ### Breaking Changes - ONLY INCLUDE FOR NEW MAJOR version -->
 
