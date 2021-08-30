@@ -694,7 +694,7 @@ public enum AsyncOpenState {
 /**
 An enum representing the type of Async operation `@AsyncOpen` or `@AutoOpen`
 */
-enum AsyncOpenType {
+private enum AsyncOpenType {
     /// @AsyncOpen
     case asyncOpen
     /// @AutoOpen
