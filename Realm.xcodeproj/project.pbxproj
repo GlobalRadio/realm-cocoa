@@ -428,15 +428,11 @@
 		AC320BAE268E1F2D0043D484 /* SwiftServerObjects.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2C2A3E268E1ACE00B4DA33 /* SwiftServerObjects.swift */; };
 		AC7D182D261F2F560080E1D2 /* RLMObjectServerPartitionTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = AC7D182B261F2F560080E1D2 /* RLMObjectServerPartitionTests.mm */; };
 		AC7D182E261F2F560080E1D2 /* SwiftObjectServerPartitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC7D182C261F2F560080E1D2 /* SwiftObjectServerPartitionTests.swift */; };
+		AC80C0CA26DEE89400AD43B0 /* RLMUser+ObjectServerTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1AF64DD11DA304A90081EB15 /* RLMUser+ObjectServerTests.mm */; };
 		AC8846762686573B00DF4A65 /* SwiftUISyncTestHostApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8846752686573B00DF4A65 /* SwiftUISyncTestHostApp.swift */; };
 		AC8846782686573B00DF4A65 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8846772686573B00DF4A65 /* ContentView.swift */; };
 		AC8846B72687BC4100DF4A65 /* SwiftUIServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8846B62687BC4100DF4A65 /* SwiftUIServerTests.swift */; };
 		AC88478626888CEE00DF4A65 /* SwiftUISyncTestHostUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8846902686573D00DF4A65 /* SwiftUISyncTestHostUITests.swift */; };
-		AC8847A3268925F100DF4A65 /* RLMSyncTestCase.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1AA5AE9B1D98A68E00ED8C27 /* RLMSyncTestCase.mm */; };
-		AC8847A4268925F100DF4A65 /* SwiftSyncTestCase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AA5AE961D989BE000ED8C27 /* SwiftSyncTestCase.swift */; };
-		AC8847A6268925F100DF4A65 /* RLMTestCase.m in Sources */ = {isa = PBXBuildFile; fileRef = 3F558C8322C29A02002F0F30 /* RLMTestCase.m */; };
-		AC8847A72689260E00DF4A65 /* RLMMultiProcessTestCase.m in Sources */ = {isa = PBXBuildFile; fileRef = 3F558C8522C29A03002F0F30 /* RLMMultiProcessTestCase.m */; };
-		AC8847A82689263100DF4A65 /* TestUtils.mm in Sources */ = {isa = PBXBuildFile; fileRef = 3F558C7E22C29A02002F0F30 /* TestUtils.mm */; };
 		AC8847A9268926B500DF4A65 /* RealmServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 537130C724A9E417001FDBBC /* RealmServer.swift */; };
 		C042A48D1B7522A900771ED2 /* RealmConfigurationTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = C042A48C1B7522A900771ED2 /* RealmConfigurationTests.mm */; };
 		C042A48E1B7522A900771ED2 /* RealmConfigurationTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = C042A48C1B7522A900771ED2 /* RealmConfigurationTests.mm */; };
@@ -2222,7 +2218,6 @@
 				49E57A1C245C5B0E004AF428 /* PBXTargetDependency */,
 				E8267FB41D90B79000E001C7 /* PBXTargetDependency */,
 				537689AC24A7DD060008E57B /* PBXTargetDependency */,
-				E8267FB61D90B79000E001C7 /* PBXTargetDependency */,
 			);
 			name = ObjectServerTests;
 			productName = RealmTests;
@@ -2879,13 +2874,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AC8847A3268925F100DF4A65 /* RLMSyncTestCase.mm in Sources */,
 				AC320BAE268E1F2D0043D484 /* SwiftServerObjects.swift in Sources */,
-				AC8847A6268925F100DF4A65 /* RLMTestCase.m in Sources */,
-				AC8847A72689260E00DF4A65 /* RLMMultiProcessTestCase.m in Sources */,
-				AC8847A82689263100DF4A65 /* TestUtils.mm in Sources */,
+				AC80C0CA26DEE89400AD43B0 /* RLMUser+ObjectServerTests.mm in Sources */,
 				AC8847A9268926B500DF4A65 /* RealmServer.swift in Sources */,
-				AC8847A4268925F100DF4A65 /* SwiftSyncTestCase.swift in Sources */,
 				AC88478626888CEE00DF4A65 /* SwiftUISyncTestHostUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
