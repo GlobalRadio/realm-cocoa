@@ -10,7 +10,6 @@ x.y.z Release notes (yyyy-MM-dd)
 * Fixed "Invalid data type" assertion failure in the sync client when the
   client recieved an AddColumn instruction from the server for an AnyRealmValue
   property when that property already exists locally. ([Core #4873](https://github.com/realm/realm-core/issues/4873), since v10.8.0)
-* Fix Realm.Configuration overriding `syncConfiguration` related configurations for synced realms.
 
 <!-- ### Breaking Changes - ONLY INCLUDE FOR NEW MAJOR version -->
 
