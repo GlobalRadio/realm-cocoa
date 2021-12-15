@@ -22,64 +22,93 @@ import XCTest
 import RealmSwift
 
 class CTTAggregateObject: Object {
-    @objc dynamic var intCol = 0
-    @objc dynamic var int8Col = 0
-    @objc dynamic var int16Col = 0
-    @objc dynamic var int32Col = 0
-    @objc dynamic var int64Col = 0
-    @objc dynamic var floatCol = 0 as Float
-    @objc dynamic var doubleCol = 0.0
-    @objc dynamic var boolCol = false
-    @objc dynamic var dateCol = Date()
-    @objc dynamic var trueCol = true
-    let stringListCol = List<CTTNullableStringObjectWithLink>()
-    let stringSetCol = MutableSet<CTTNullableStringObjectWithLink>()
-    @objc dynamic var linkCol: CTTLinkTarget?
-    @objc dynamic var childIntCol: CTTIntegerObject?
+    @Persisted var intCol = 0
+    @Persisted var int8Col = 0
+    @Persisted var int16Col = 0
+    @Persisted var int32Col = 0
+    @Persisted var int64Col = 0
+    @Persisted var floatCol = 0 as Float
+    @Persisted var doubleCol = 0.0
+    @Persisted var boolCol = false
+    @Persisted var dateCol = Date()
+    @Persisted var trueCol = true
+    @Persisted var stringListCol: List<CTTNullableStringObjectWithLink>
+    @Persisted var stringSetCol: MutableSet<CTTNullableStringObjectWithLink>
+    @Persisted var linkCol: CTTLinkTarget?
+    @Persisted var childIntCol: CTTIntegerObject?
 }
 
 class CTTIntegerObject: Object {
-    @objc dynamic var intCol = 0
+    @Persisted var intCol = 0
 }
 
 class CTTAggregateObjectList: Object {
-    let list = List<CTTAggregateObject>()
+    @Persisted var list: List<CTTAggregateObject>
 }
 
 class CTTAggregateObjectSet: Object {
-    let set = MutableSet<CTTAggregateObject>()
+    @Persisted var set: MutableSet<CTTAggregateObject>
 }
 
 class CTTNullableStringObjectWithLink: Object {
-    @objc dynamic var stringCol: String? = ""
-    @objc dynamic var linkCol: CTTLinkTarget?
+    @Persisted var stringCol: String? = ""
+    @Persisted var linkCol: CTTLinkTarget?
 }
 
 class CTTLinkTarget: Object {
-    @objc dynamic var id = 0
-    let stringObjects = LinkingObjects(fromType: CTTNullableStringObjectWithLink.self, property: "linkCol")
-    let aggregateObjects = LinkingObjects(fromType: CTTAggregateObject.self, property: "linkCol")
+    @Persisted var id = 0
+    @Persisted(originProperty: "linkCol") var stringObjects: LinkingObjects<CTTNullableStringObjectWithLink>
+    @Persisted(originProperty: "linkCol") var aggregateObjects: LinkingObjects<CTTAggregateObject>
 }
 
 class CTTStringList: Object {
-    let array = List<CTTNullableStringObjectWithLink>()
+    @Persisted var array: List<CTTNullableStringObjectWithLink>
 }
 
 class CTTStringSet: Object {
-    let set = MutableSet<CTTNullableStringObjectWithLink>()
+    @Persisted var set: MutableSet<CTTNullableStringObjectWithLink>
 }
 
-class RealmCollectionTypeTests: TestCase {
+struct Config {
+    static let config = Realm.Configuration(inMemoryIdentifier: "collection",
+                                            objectTypes: [CTTAggregateObject.self,
+                                                          CTTNullableStringObjectWithLink.self,
+                                                          CTTIntegerObject.self,
+                                                          CTTAggregateObjectList.self,
+                                                          CTTAggregateObjectSet.self,
+                                                          CTTNullableStringObjectWithLink.self,
+                                                          CTTLinkTarget.self,
+                                                          CTTStringList.self,
+                                                          CTTStringSet.self,
+
+                                                          SwiftDoubleListOfSwiftObject.self,
+                                                          SwiftListOfSwiftObject.self,
+                                                          SwiftObject.self,
+                                                          SwiftBoolObject.self])
+}
+class RealmCollectionTests<Collection: RealmCollection, AggregateCollection: RealmCollection>: TestCase where
+        Collection.Element == CTTNullableStringObjectWithLink, Collection.Index == Int,
+        AggregateCollection.Element == CTTAggregateObject, AggregateCollection.Index == Int {
     var str1: CTTNullableStringObjectWithLink!
     var str2: CTTNullableStringObjectWithLink!
-    var collection: AnyRealmCollection<CTTNullableStringObjectWithLink>!
+    var collection: Collection!
 
-    func getCollection() -> AnyRealmCollection<CTTNullableStringObjectWithLink> {
+    func realm() -> Realm {
+        return try! Realm(configuration: Config.config)
+    }
+
+    func getCollection(_ realm: Realm) -> Collection {
         fatalError("Abstract method. Try running tests using Control-U.")
     }
 
-    func getAggregateableCollection() -> AnyRealmCollection<CTTAggregateObject> {
+    func getAggregateableCollectionInWrite(_ realm: Realm) -> AggregateCollection {
         fatalError("Abstract method. Try running tests using Control-U.")
+    }
+    func getAggregateableCollection() -> AggregateCollection {
+        let realm = self.realm()
+        return try! realm.write {
+            getAggregateableCollectionInWrite(realm)
+        }
     }
 
     func makeAggregateableObjectsInWriteTransaction() -> [CTTAggregateObject] {
@@ -116,16 +145,14 @@ class RealmCollectionTypeTests: TestCase {
         obj3.dateCol = Date(timeIntervalSince1970: 2)
         obj3.boolCol = false
 
-        realmWithTestPath().add([obj1, obj2, obj3])
+        self.realm().add([obj1, obj2, obj3])
         return [obj1, obj2, obj3]
     }
 
     func makeAggregateableObjects() -> [CTTAggregateObject] {
-        var result: [CTTAggregateObject]?
-        try! realmWithTestPath().write {
-            result = makeAggregateableObjectsInWriteTransaction()
+        return try! self.realm().write {
+            makeAggregateableObjectsInWriteTransaction()
         }
-        return result!
     }
 
     override func setUp() {
@@ -143,14 +170,13 @@ class RealmCollectionTypeTests: TestCase {
         str2.linkCol = target1
         self.str2 = str2
 
-        let realm = realmWithTestPath()
+        let realm = self.realm()
         try! realm.write {
             realm.add(str1)
             realm.add(str2)
             realm.add(target1)
+            collection = getCollection(realm)
         }
-
-        collection = AnyRealmCollection(getCollection())
     }
 
     override func tearDown() {
@@ -163,14 +189,14 @@ class RealmCollectionTypeTests: TestCase {
 
     override class var defaultTestSuite: XCTestSuite {
         // Don't run tests for the base class
-        if isEqual(RealmCollectionTypeTests.self) {
+        if isEqual(RealmCollectionTests.self) {
             return XCTestSuite(name: "empty")
         }
         return super.defaultTestSuite
     }
 
     func testRealm() {
-        XCTAssertEqual(collection.realm!.configuration.fileURL, realmWithTestPath().configuration.fileURL)
+        XCTAssertEqual(collection.realm!.configuration.fileURL, self.realm().configuration.fileURL)
     }
 
     func testDescription() {
@@ -183,6 +209,10 @@ class RealmCollectionTypeTests: TestCase {
         XCTAssertEqual(1, collection.filter("stringCol = '1'").count)
         XCTAssertEqual(1, collection.filter("stringCol = '2'").count)
         XCTAssertEqual(0, collection.filter("stringCol = '0'").count)
+
+        XCTAssertEqual(1, collection.where { $0.stringCol == "1" }.count)
+        XCTAssertEqual(1, collection.where { $0.stringCol == "2" }.count)
+        XCTAssertEqual(0, collection.where { $0.stringCol == "0" }.count)
     }
 
     func testIndexOfObject() {
@@ -192,6 +222,10 @@ class RealmCollectionTypeTests: TestCase {
         let str1Only = collection.filter("stringCol = '1'")
         XCTAssertEqual(0, str1Only.index(of: str1)!)
         XCTAssertNil(str1Only.index(of: str2))
+
+        let str1OnlyQuery = collection.where { $0.stringCol == "1" }
+        XCTAssertEqual(0, str1OnlyQuery.index(of: str1)!)
+        XCTAssertNil(str1OnlyQuery.index(of: str2))
     }
 
     func testIndexOfPredicate() {
@@ -202,6 +236,12 @@ class RealmCollectionTypeTests: TestCase {
         XCTAssertEqual(0, collection.index(matching: pred1)!)
         XCTAssertEqual(1, collection.index(matching: pred2)!)
         XCTAssertNil(collection.index(matching: pred3))
+    }
+
+    func testIndexOfQuery() {
+        XCTAssertEqual(0, collection.index(matching: { $0.stringCol == "1" })!)
+        XCTAssertEqual(1, collection.index(matching: { $0.stringCol == "2" })!)
+        XCTAssertNil(collection.index(matching: { $0.stringCol == "3" }))
     }
 
     func testIndexOfFormat() {
@@ -230,12 +270,18 @@ class RealmCollectionTypeTests: TestCase {
         assertEqual(str1, collection.first!)
         assertEqual(str2, collection.filter("stringCol = '2'").first!)
         XCTAssertNil(collection.filter("stringCol = '3'").first)
+
+        assertEqual(str2, collection.where { $0.stringCol == "2" }.first!)
+        XCTAssertNil(collection.where { $0.stringCol == "3" }.first)
     }
 
     func testLast() {
         assertEqual(str2, collection.last!)
         assertEqual(str2, collection.filter("stringCol = '2'").last!)
         XCTAssertNil(collection.filter("stringCol = '3'").last)
+
+        assertEqual(str2, collection.where { $0.stringCol == "2" }.last!)
+        XCTAssertNil(collection.where { $0.stringCol == "3" }.last)
     }
 
     func testValueForKey() {
@@ -247,7 +293,7 @@ class RealmCollectionTypeTests: TestCase {
     }
 
     func testSetValueForKey() {
-        try! realmWithTestPath().write {
+        try! self.realm().write {
             collection.setValue("hi there!", forKey: "stringCol")
         }
         let expected = Array((0..<collection.count).map { _ in "hi there!" })
@@ -260,6 +306,17 @@ class RealmCollectionTypeTests: TestCase {
         XCTAssertEqual(1, collection.filter("stringCol = %@", "1").count)
         XCTAssertEqual(1, collection.filter("stringCol = %@", "2").count)
         XCTAssertEqual(0, collection.filter("stringCol = %@", "3").count)
+
+        XCTAssertEqual(1, collection.filter("stringCol = %@", AnyRealmValue.string("1")).count)
+        XCTAssertEqual(1, collection.filter("stringCol = %@", AnyRealmValue.string("2")).count)
+        XCTAssertEqual(0, collection.filter("stringCol = %@", AnyRealmValue.string("3")).count)
+
+        XCTAssertEqual(1, collection.filter { $0.stringCol == "1" }.count)
+        XCTAssertEqual(1, collection.filter { $0.stringCol == "2" }.count)
+        XCTAssertEqual(0, collection.filter { $0.stringCol == "3" }.count)
+
+        XCTAssertEqual(1, collection.where { $0.stringCol == "1" }.count)
+        XCTAssertEqual(0, collection.where { $0.stringCol == "3" }.count)
     }
 
     func testFilterWithAnyVarags() {
@@ -269,11 +326,14 @@ class RealmCollectionTypeTests: TestCase {
         let result = collection.filter("stringCol = %@ OR stringCol = %@ OR stringCol = %@",
                                        firstCriterion as Any, secondCriterion as Any, thirdCriterion as Any)
         XCTAssertEqual(2, result.count)
+
+        let queryResult = collection.where { $0.stringCol == firstCriterion || $0.stringCol == secondCriterion || $0.stringCol == thirdCriterion }
+        XCTAssertEqual(2, queryResult.count)
     }
 
     func testFilterList() {
         let outerArray = SwiftDoubleListOfSwiftObject()
-        let realm = realmWithTestPath()
+        let realm = self.realm()
         let innerArray = SwiftListOfSwiftObject()
         innerArray.array.append(SwiftObject())
         outerArray.array.append(innerArray)
@@ -281,23 +341,28 @@ class RealmCollectionTypeTests: TestCase {
             realm.add(outerArray)
         }
         XCTAssertEqual(1, outerArray.array.filter("ANY array IN %@", realm.objects(SwiftObject.self)).count)
+        XCTAssertEqual(1, outerArray.array.where { $0.array.containsAny(in: realm.objects(SwiftObject.self)) }.count)
     }
 
     func testFilterResults() {
         let array = SwiftListOfSwiftObject()
-        let realm = realmWithTestPath()
+        let realm = self.realm()
         array.array.append(SwiftObject())
         try! realm.write {
             realm.add(array)
         }
         XCTAssertEqual(1, realm.objects(SwiftListOfSwiftObject.self).filter("ANY array IN %@", realm.objects(SwiftObject.self)).count)
+        XCTAssertEqual(1, realm.objects(SwiftListOfSwiftObject.self).where { $0.array.containsAny(in: realm.objects(SwiftObject.self)) }.count)
     }
 
     func testFilterPredicate() {
-        let pred1 = NSPredicate(format: "stringCol = '1'")
-        let pred2 = NSPredicate(format: "stringCol = '2'")
-        let pred3 = NSPredicate(format: "stringCol = '3'")
+        XCTAssertEqual(1, collection.filter(NSPredicate(format: "stringCol = '1'")).count)
+        XCTAssertEqual(1, collection.filter(NSPredicate(format: "stringCol = '2'")).count)
+        XCTAssertEqual(0, collection.filter(NSPredicate(format: "stringCol = '3'")).count)
 
+        let pred1 = NSPredicate(format: "stringCol = %@", argumentArray: [AnyRealmValue.string("1")])
+        let pred2 = NSPredicate(format: "stringCol = %@", argumentArray: [AnyRealmValue.string("2")])
+        let pred3 = NSPredicate(format: "stringCol = %@", argumentArray: [AnyRealmValue.string("3")])
         XCTAssertEqual(1, collection.filter(pred1).count)
         XCTAssertEqual(1, collection.filter(pred2).count)
         XCTAssertEqual(0, collection.filter(pred3).count)
@@ -332,6 +397,11 @@ class RealmCollectionTypeTests: TestCase {
         sorted = collection.sorted(by: \.linkCol?.id, ascending: true)
         XCTAssertEqual("1", sorted[0].stringCol)
         XCTAssertEqual("2", sorted[1].stringCol)
+
+        let nonOptionalSorted = getAggregateableCollection().sorted(by: \.intCol, ascending: true)
+        nonOptionalSorted.enumerated().forEach { e in
+            XCTAssertEqual(e.offset+1, nonOptionalSorted[e.offset].intCol)
+        }
     }
 
     func testSortWithDescriptor() {
@@ -506,7 +576,7 @@ class RealmCollectionTypeTests: TestCase {
     }
 
     func testFastEnumerationWithMutation() {
-        let realm = realmWithTestPath()
+        let realm = self.realm()
         try! realm.write {
             for obj in collection {
                 realm.delete(obj)
@@ -516,15 +586,21 @@ class RealmCollectionTypeTests: TestCase {
     }
 
     func testAssignListProperty() {
-        // no way to make RealmCollectionType conform to NSFastEnumeration
-        // so test the concrete collections directly.
-        fatalError("abstract")
+        let realm = self.realm()
+        try! realm.write {
+            let array = CTTStringList()
+            realm.add(array)
+            array["array"] = getCollection(realm)
+        }
     }
 
     func testAssignSetProperty() {
-        // no way to make RealmCollectionType conform to NSFastEnumeration
-        // so test the concrete collections directly.
-        fatalError("abstract")
+        let realm = self.realm()
+        try! realm.write {
+            let set = CTTStringSet()
+            realm.add(set)
+            set["set"] = getCollection(realm)
+        }
     }
 
     func testArrayAggregateWithSwiftObjectDoesntThrow() {
@@ -532,6 +608,7 @@ class RealmCollectionTypeTests: TestCase {
 
         // Should not throw a type error.
         XCTAssertEqual(0, collection.filter("ANY stringListCol == %@", CTTNullableStringObjectWithLink()).count)
+        XCTAssertEqual(0, collection.where { $0.stringListCol.contains(CTTNullableStringObjectWithLink()) }.count)
     }
 
     func testObserve() {
@@ -560,7 +637,7 @@ class RealmCollectionTypeTests: TestCase {
         // make a write and implicitly verify that only the unskipped
         // notification is called (the first would error on .update)
         ex2 = expectation(description: "change notification")
-        let realm = realmWithTestPath()
+        let realm = self.realm()
         realm.beginWrite()
         realm.delete(collection)
         try! realm.commitWrite(withoutNotifying: [token])
@@ -590,7 +667,7 @@ class RealmCollectionTypeTests: TestCase {
         // Expect a change notification for the token observing `stringCol` keypath.
         ex = self.expectation(description: "change notification")
         dispatchSyncNewThread {
-            let realm = self.realmWithTestPath()
+            let realm = self.realm()
             realm.beginWrite()
             let obj = realm.objects(CTTNullableStringObjectWithLink.self).first!
             obj.stringCol = "changed"
@@ -600,32 +677,40 @@ class RealmCollectionTypeTests: TestCase {
         token0.invalidate()
     }
 
+    func expectNoChange(fn: @escaping (Realm) -> Void) {
+        let ex = self.expectation(description: "refresh")
+        let token = self.realm().observe { _, _ in
+            ex.fulfill()
+        }
+
+        dispatchSyncNewThread {
+            let realm = self.realm()
+            realm.beginWrite()
+            fn(realm)
+            try! realm.commitWrite()
+        }
+        wait(for: [ex], timeout: 0.2)
+        token.invalidate()
+    }
+
     func testObserveKeyPathNoChange() {
-        var ex = expectation(description: "initial notification")
+        let ex = expectation(description: "initial notification")
         let token0 = collection.observe(keyPaths: ["stringCol"]) { (changes: RealmCollectionChange) in
             switch changes {
             case .initial(let collection):
                 XCTAssertEqual(collection.count, 2)
-            case .update:
-                XCTFail("update not expected")
-            case .error:
-                XCTFail("error not expected")
+            default:
+                XCTFail("Unexpected change: \(changes)")
             }
             ex.fulfill()
         }
         waitForExpectations(timeout: 0.2, handler: nil)
 
         // Expect no notification for `stringCol` key path because only `linkCol.id` will be modified.
-        ex = self.expectation(description: "NO change notification")
-        ex.isInverted = true // Inverted expectation causes failure if fulfilled.
-        dispatchSyncNewThread {
-            let realm = self.realmWithTestPath()
-            realm.beginWrite()
+        expectNoChange { realm in
             let obj = realm.objects(CTTNullableStringObjectWithLink.self).first!
             obj.linkCol!.id = 2
-            try! realm.commitWrite()
         }
-        waitForExpectations(timeout: 0.1, handler: nil)
         token0.invalidate()
     }
 
@@ -652,7 +737,7 @@ class RealmCollectionTypeTests: TestCase {
         // Only expect a change notification for `linkCol.id` keypath.
         ex = self.expectation(description: "change notification")
         dispatchSyncNewThread {
-            let realm = self.realmWithTestPath()
+            let realm = self.realm()
             realm.beginWrite()
             let obj = realm.objects(CTTNullableStringObjectWithLink.self).first!
             obj.linkCol!.id = 2
@@ -663,60 +748,44 @@ class RealmCollectionTypeTests: TestCase {
     }
 
     func testObserveKeyPathWithLinkNoChange() {
-        var ex = expectation(description: "initial notification")
+        let ex = expectation(description: "initial notification")
         let token = collection.observe(keyPaths: ["linkCol.id"]) { (changes: RealmCollectionChange) in
             switch changes {
             case .initial(let collection):
                 XCTAssertEqual(collection.count, 2)
-            case .update:
-                XCTFail("update not expected")
-            case .error:
-                XCTFail("error not expected")
+            default:
+                XCTFail("Unexpected change: \(changes)")
             }
             ex.fulfill()
         }
         waitForExpectations(timeout: 0.2, handler: nil)
 
         // Expect no notification for `linkCol.id` key path because only `stringCol` will be modified.
-        ex = self.expectation(description: "NO change notification")
-        ex.isInverted = true // Inverted expectation causes failure if fulfilled.
-        dispatchSyncNewThread {
-            let realm = self.realmWithTestPath()
-            realm.beginWrite()
+        expectNoChange { realm in
             let obj = realm.objects(CTTNullableStringObjectWithLink.self).first!
             obj.stringCol = "changed"
-            try! realm.commitWrite()
         }
-        waitForExpectations(timeout: 0.1, handler: nil)
         token.invalidate()
     }
 
     func testObserveKeyPathWithLinkNoChangeList() {
-        var ex = expectation(description: "initial notification")
+        let ex = expectation(description: "initial notification")
         let token = collection.observe(keyPaths: ["linkCol"]) { (changes: RealmCollectionChange) in
             switch changes {
             case .initial(let collection):
                 XCTAssertEqual(collection.count, 2)
-            case .update:
-                XCTFail("update not expected")
-            case .error:
-                XCTFail("error not expected")
+            default:
+                XCTFail("Unexpected change: \(changes)")
             }
             ex.fulfill()
         }
         waitForExpectations(timeout: 0.2, handler: nil)
 
         // Expect no notification for `linkCol` key path because only `linkCol.id` will be modified.
-        ex = self.expectation(description: "NO change notification")
-        ex.isInverted = true // Inverted expectation causes failure if fulfilled.
-        dispatchSyncNewThread {
-            let realm = self.realmWithTestPath()
-            realm.beginWrite()
+        expectNoChange { realm in
             let obj = realm.objects(CTTNullableStringObjectWithLink.self).first!
             obj.linkCol!.id = 2
-            try! realm.commitWrite()
         }
-        waitForExpectations(timeout: 0.1, handler: nil)
         token.invalidate()
     }
 
@@ -740,7 +809,7 @@ class RealmCollectionTypeTests: TestCase {
         // Expect a change notification for the token observing `stringCol` keypath.
         ex = self.expectation(description: "change notification")
         dispatchSyncNewThread {
-            let realm = self.realmWithTestPath()
+            let realm = self.realm()
             realm.beginWrite()
             let obj = realm.objects(CTTNullableStringObjectWithLink.self).first!
             obj.stringCol = "changed"
@@ -751,31 +820,23 @@ class RealmCollectionTypeTests: TestCase {
     }
 
     func testObservePartialKeyPathNoChange() {
-        var ex = expectation(description: "initial notification")
+        let ex = expectation(description: "initial notification")
         let token0 = collection.observe(keyPaths: [\CTTNullableStringObjectWithLink.stringCol]) { (changes: RealmCollectionChange) in
             switch changes {
             case .initial(let collection):
                 XCTAssertEqual(collection.count, 2)
-            case .update:
-                XCTFail("update not expected")
-            case .error:
-                XCTFail("error not expected")
+            default:
+                XCTFail("Unexpected change: \(changes)")
             }
             ex.fulfill()
         }
         waitForExpectations(timeout: 0.2, handler: nil)
 
         // Expect no notification for `stringCol` key path because only `linkCol.id` will be modified.
-        ex = self.expectation(description: "NO change notification")
-        ex.isInverted = true // Inverted expectation causes failure if fulfilled.
-        dispatchSyncNewThread {
-            let realm = self.realmWithTestPath()
-            realm.beginWrite()
+        expectNoChange { realm in
             let obj = realm.objects(CTTNullableStringObjectWithLink.self).first!
             obj.linkCol!.id = 2
-            try! realm.commitWrite()
         }
-        waitForExpectations(timeout: 0.1, handler: nil)
         token0.invalidate()
     }
 
@@ -802,7 +863,7 @@ class RealmCollectionTypeTests: TestCase {
         // Only expect a change notification for `linkCol.id` keypath.
         ex = self.expectation(description: "change notification")
         dispatchSyncNewThread {
-            let realm = self.realmWithTestPath()
+            let realm = self.realm()
             realm.beginWrite()
             let obj = realm.objects(CTTNullableStringObjectWithLink.self).first!
             obj.linkCol!.id = 2
@@ -813,35 +874,27 @@ class RealmCollectionTypeTests: TestCase {
     }
 
     func testObservePartialKeyPathWithLinkNoChangeList() {
-        var ex = expectation(description: "initial notification")
+        let ex = expectation(description: "initial notification")
         let token = collection.observe(keyPaths: [\CTTNullableStringObjectWithLink.linkCol]) { (changes: RealmCollectionChange) in
             switch changes {
             case .initial(let collection):
                 XCTAssertEqual(collection.count, 2)
-            case .update:
-                XCTFail("update not expected")
-            case .error:
-                XCTFail("error not expected")
+            default:
+                XCTFail("Unexpected change: \(changes)")
             }
             ex.fulfill()
         }
         waitForExpectations(timeout: 0.2, handler: nil)
 
         // Expect no notification for `linkCol` key path because only `linkCol.id` will be modified.
-        ex = self.expectation(description: "NO change notification")
-        ex.isInverted = true // Inverted expectation causes failure if fulfilled.
-        dispatchSyncNewThread {
-            let realm = self.realmWithTestPath()
-            realm.beginWrite()
+        expectNoChange { realm in
             let obj = realm.objects(CTTNullableStringObjectWithLink.self).first!
             obj.linkCol!.id = 2
-            try! realm.commitWrite()
         }
-        waitForExpectations(timeout: 0.1, handler: nil)
         token.invalidate()
     }
 
-    func observeOnQueue<Collection: RealmCollection>(_ collection: Collection) where Collection.Element: Object {
+    func testObserveOnQueue() {
         let sema = DispatchSemaphore(value: 0)
         let token = collection.observe(keyPaths: nil, on: queue) { (changes: RealmCollectionChange) in
             switch changes {
@@ -858,17 +911,13 @@ class RealmCollectionTypeTests: TestCase {
         }
         sema.wait()
 
-        let realm = realmWithTestPath()
+        let realm = self.realm()
         try! realm.write {
             realm.delete(collection)
         }
         sema.wait()
 
         token.invalidate()
-    }
-
-    func testObserveOnQueue() {
-        observeOnQueue(collection)
     }
 
     func testValueForKeyPath() {
@@ -884,7 +933,7 @@ class RealmCollectionTypeTests: TestCase {
 
     func testInvalidate() {
         XCTAssertFalse(collection.isInvalidated)
-        realmWithTestPath().invalidate()
+        self.realm().invalidate()
         XCTAssertTrue(collection.realm == nil || collection.isInvalidated)
     }
 
@@ -942,11 +991,12 @@ class RealmCollectionTypeTests: TestCase {
 
     func testThawUpdatedOnDifferentThread() {
         let tsr = ThreadSafeReference(to: collection)
-        var frozen: AnyRealmCollection<CTTNullableStringObjectWithLink>?
+        var frozen: Collection?
         var frozenQuery: Results<CTTNullableStringObjectWithLink>?
 
         XCTAssertEqual(collection.count, 2) // stringCol "1" and "2"
         XCTAssertEqual(collection.filter("stringCol == %@", "3").count, 0)
+        XCTAssertEqual(collection.where { $0.stringCol == "3" }.count, 0)
 
         dispatchSyncNewThread {
             let realm = try! Realm(configuration: self.collection.realm!.configuration)
@@ -967,17 +1017,29 @@ class RealmCollectionTypeTests: TestCase {
         XCTAssertEqual(frozen!.filter("stringCol == %@", "2").count, 0)
         XCTAssertEqual(frozen!.filter("stringCol == %@", "3").count, 1)
 
+        XCTAssertEqual(frozen!.where { $0.stringCol == "1" }.count, 0)
+        XCTAssertEqual(frozen!.where { $0.stringCol == "2" }.count, 0)
+        XCTAssertEqual(frozen!.where { $0.stringCol == "3" }.count, 1)
+
         XCTAssertEqual(thawed!.count, 2)
         XCTAssertEqual(thawed!.first?.stringCol, "1")
         XCTAssertEqual(thawed!.filter("stringCol == %@", "1").count, 1)
         XCTAssertEqual(thawed!.filter("stringCol == %@", "2").count, 1)
         XCTAssertEqual(thawed!.filter("stringCol == %@", "3").count, 0)
 
+        XCTAssertEqual(thawed!.where { $0.stringCol == "1" }.count, 1)
+        XCTAssertEqual(thawed!.where { $0.stringCol == "2" }.count, 1)
+        XCTAssertEqual(thawed!.where { $0.stringCol == "3" }.count, 0)
+
         XCTAssertEqual(collection.count, 2)
         XCTAssertEqual(collection.first?.stringCol, "1")
         XCTAssertEqual(collection.filter("stringCol == %@", "1").count, 1)
         XCTAssertEqual(collection.filter("stringCol == %@", "2").count, 1)
         XCTAssertEqual(collection.filter("stringCol == %@", "3").count, 0)
+
+        XCTAssertEqual(collection.where { $0.stringCol == "1" }.count, 1)
+        XCTAssertEqual(collection.where { $0.stringCol == "2" }.count, 1)
+        XCTAssertEqual(collection.where { $0.stringCol == "3" }.count, 0)
 
         let thawedQuery = frozenQuery!.thaw()
         XCTAssertEqual(frozenQuery!.count, 0)
@@ -986,11 +1048,19 @@ class RealmCollectionTypeTests: TestCase {
         XCTAssertEqual(frozenQuery!.filter("stringCol == %@", "2").count, 0)
         XCTAssertEqual(frozenQuery!.filter("stringCol == %@", "3").count, 0)
 
+        XCTAssertEqual(frozenQuery!.where { $0.stringCol == "1" }.count, 0)
+        XCTAssertEqual(frozenQuery!.where { $0.stringCol == "2" }.count, 0)
+        XCTAssertEqual(frozenQuery!.where { $0.stringCol == "3" }.count, 0)
+
         XCTAssertEqual(thawedQuery!.count, 1)
         XCTAssertEqual(thawedQuery!.first?.stringCol, "1")
         XCTAssertEqual(thawedQuery!.filter("stringCol == %@", "1").count, 1)
         XCTAssertEqual(thawedQuery!.filter("stringCol == %@", "2").count, 0)
         XCTAssertEqual(thawedQuery!.filter("stringCol == %@", "3").count, 0)
+
+        XCTAssertEqual(thawedQuery!.where { $0.stringCol == "1" }.count, 1)
+        XCTAssertEqual(thawedQuery!.where { $0.stringCol == "2" }.count, 0)
+        XCTAssertEqual(thawedQuery!.where { $0.stringCol == "3" }.count, 0)
 
         collection.realm!.refresh()
 
@@ -1000,17 +1070,29 @@ class RealmCollectionTypeTests: TestCase {
         XCTAssertEqual(thawed!.filter("stringCol == %@", "2").count, 0)
         XCTAssertEqual(thawed!.filter("stringCol == %@", "3").count, 1)
 
+        XCTAssertEqual(thawed!.where { $0.stringCol == "1" }.count, 0)
+        XCTAssertEqual(thawed!.where { $0.stringCol == "2" }.count, 0)
+        XCTAssertEqual(thawed!.where { $0.stringCol == "3" }.count, 1)
+
         XCTAssertEqual(thawedQuery!.count, 0)
         XCTAssertEqual(thawedQuery!.first?.stringCol, nil)
         XCTAssertEqual(thawedQuery!.filter("stringCol == %@", "1").count, 0)
         XCTAssertEqual(thawedQuery!.filter("stringCol == %@", "2").count, 0)
         XCTAssertEqual(thawedQuery!.filter("stringCol == %@", "3").count, 0)
 
+        XCTAssertEqual(thawedQuery!.where { $0.stringCol == "1" }.count, 0)
+        XCTAssertEqual(thawedQuery!.where { $0.stringCol == "2" }.count, 0)
+        XCTAssertEqual(thawedQuery!.where { $0.stringCol == "3" }.count, 0)
+
         XCTAssertEqual(collection.count, 1)
         XCTAssertEqual(collection.first?.stringCol, "3")
         XCTAssertEqual(collection.filter("stringCol == %@", "1").count, 0)
         XCTAssertEqual(collection.filter("stringCol == %@", "2").count, 0)
         XCTAssertEqual(collection.filter("stringCol == %@", "3").count, 1)
+
+        XCTAssertEqual(collection.where { $0.stringCol == "1" }.count, 0)
+        XCTAssertEqual(collection.where { $0.stringCol == "2" }.count, 0)
+        XCTAssertEqual(collection.where { $0.stringCol == "3" }.count, 1)
     }
 
     func testThawDeletedParent() {
@@ -1052,60 +1134,101 @@ class RealmCollectionTypeTests: TestCase {
         XCTAssertEqual(frozen.filter("stringCol = '2'").count, 1)
         XCTAssertEqual(frozen.filter("stringCol = '3'").count, 0)
         XCTAssertTrue(frozen.filter("stringCol = '3'").isFrozen)
+
+        XCTAssertEqual(frozen.where { $0.stringCol == "1" }.count, 1)
+        XCTAssertEqual(frozen.where { $0.stringCol == "2" }.count, 1)
+        XCTAssertEqual(frozen.where { $0.stringCol == "3" }.count, 0)
+        XCTAssertTrue(frozen.where { $0.stringCol == "3" }.isFrozen)
     }
 
     func testFilterWithInt8Property() {
         _ = makeAggregateableObjects()
-        var results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int8Col = %d", Int8(0))
+        var results = self.realm().objects(CTTAggregateObject.self).filter("int8Col = %d", Int8(0))
         XCTAssertEqual(results.count, 0)
-        results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int8Col = %d", Int8(1))
+        results = self.realm().objects(CTTAggregateObject.self).filter("int8Col = %d", Int8(1))
         XCTAssertEqual(results.count, 1)
-        results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int8Col = %d", Int8(2))
+        results = self.realm().objects(CTTAggregateObject.self).filter("int8Col = %d", Int8(2))
         XCTAssertEqual(results.count, 1)
-        results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int8Col = %d", Int8(3))
+        results = self.realm().objects(CTTAggregateObject.self).filter("int8Col = %d", Int8(3))
+        XCTAssertEqual(results.count, 1)
+
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int8Col == 0 }
+        XCTAssertEqual(results.count, 0)
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int8Col == 1 }
+        XCTAssertEqual(results.count, 1)
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int8Col == 2 }
+        XCTAssertEqual(results.count, 1)
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int8Col == 3 }
         XCTAssertEqual(results.count, 1)
     }
 
     func testFilterWithInt16Property() {
         _ = makeAggregateableObjects()
-        var results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int16Col = %d", Int16(0))
+        var results = self.realm().objects(CTTAggregateObject.self).filter("int16Col = %d", Int16(0))
         XCTAssertEqual(results.count, 0)
-        results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int16Col = %d", Int16(1))
+        results = self.realm().objects(CTTAggregateObject.self).filter("int16Col = %d", Int16(1))
         XCTAssertEqual(results.count, 1)
-        results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int16Col = %d", Int16(2))
+        results = self.realm().objects(CTTAggregateObject.self).filter("int16Col = %d", Int16(2))
         XCTAssertEqual(results.count, 1)
-        results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int16Col = %d", Int16(3))
+        results = self.realm().objects(CTTAggregateObject.self).filter("int16Col = %d", Int16(3))
+        XCTAssertEqual(results.count, 1)
+
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int16Col == 0 }
+        XCTAssertEqual(results.count, 0)
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int16Col == 1 }
+        XCTAssertEqual(results.count, 1)
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int16Col == 2 }
+        XCTAssertEqual(results.count, 1)
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int16Col == 3 }
         XCTAssertEqual(results.count, 1)
     }
 
     func testFilterWithInt32Property() {
         _ = makeAggregateableObjects()
-        var results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int32Col = %d", Int32(0))
+        var results = self.realm().objects(CTTAggregateObject.self).filter("int32Col = %d", Int32(0))
         XCTAssertEqual(results.count, 0)
-        results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int32Col = %d", Int32(1))
+        results = self.realm().objects(CTTAggregateObject.self).filter("int32Col = %d", Int32(1))
         XCTAssertEqual(results.count, 1)
-        results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int32Col = %d", Int32(2))
+        results = self.realm().objects(CTTAggregateObject.self).filter("int32Col = %d", Int32(2))
         XCTAssertEqual(results.count, 1)
-        results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int32Col = %d", Int32(3))
+        results = self.realm().objects(CTTAggregateObject.self).filter("int32Col = %d", Int32(3))
+        XCTAssertEqual(results.count, 1)
+
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int32Col == 0 }
+        XCTAssertEqual(results.count, 0)
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int32Col == 1 }
+        XCTAssertEqual(results.count, 1)
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int32Col == 2 }
+        XCTAssertEqual(results.count, 1)
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int32Col == 3 }
         XCTAssertEqual(results.count, 1)
     }
 
     func testFilterWithInt64Property() {
         _ = makeAggregateableObjects()
-        var results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int64Col = %d", Int64(0))
+        var results = self.realm().objects(CTTAggregateObject.self).filter("int64Col = %d", Int64(0))
         XCTAssertEqual(results.count, 0)
-        results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int64Col = %d", Int64(1))
+        results = self.realm().objects(CTTAggregateObject.self).filter("int64Col = %d", Int64(1))
         XCTAssertEqual(results.count, 1)
-        results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int64Col = %d", Int64(2))
+        results = self.realm().objects(CTTAggregateObject.self).filter("int64Col = %d", Int64(2))
         XCTAssertEqual(results.count, 1)
-        results = realmWithTestPath().objects(CTTAggregateObject.self).filter("int64Col = %d", Int64(3))
+        results = self.realm().objects(CTTAggregateObject.self).filter("int64Col = %d", Int64(3))
+        XCTAssertEqual(results.count, 1)
+
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int64Col == 0 }
+        XCTAssertEqual(results.count, 0)
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int64Col == 1 }
+        XCTAssertEqual(results.count, 1)
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int64Col == 2 }
+        XCTAssertEqual(results.count, 1)
+        results = self.realm().objects(CTTAggregateObject.self).where { $0.int64Col == 3 }
         XCTAssertEqual(results.count, 1)
     }
 }
 
 // MARK: Results
 
-class ResultsTests: RealmCollectionTypeTests {
+class ResultsTests: RealmCollectionTests<Results<CTTNullableStringObjectWithLink>, Results<CTTAggregateObject>> {
     override class var defaultTestSuite: XCTestSuite {
         // Don't run tests for the base class
         if isEqual(ResultsTests.self) {
@@ -1114,58 +1237,24 @@ class ResultsTests: RealmCollectionTypeTests {
         return super.defaultTestSuite
     }
 
-    func collectionBaseInWriteTransaction() -> Results<CTTNullableStringObjectWithLink> {
-        fatalError("abstract")
-    }
-
-    final func collectionBase() -> Results<CTTNullableStringObjectWithLink> {
-        var result: Results<CTTNullableStringObjectWithLink>?
-        try! realmWithTestPath().write {
-            result = collectionBaseInWriteTransaction()
-        }
-        return result!
-    }
-
-    override func getCollection() -> AnyRealmCollection<CTTNullableStringObjectWithLink> {
-        return AnyRealmCollection(collectionBase())
-    }
-
-    override func testAssignListProperty() {
-        try! realmWithTestPath().write {
-            let array = CTTStringList()
-            realmWithTestPath().add(array)
-            array["array"] = collectionBaseInWriteTransaction()
-        }
-    }
-
-    override func testAssignSetProperty() {
-        try! realmWithTestPath().write {
-            let set = CTTStringSet()
-            realmWithTestPath().add(set)
-            set["set"] = collectionBaseInWriteTransaction()
-        }
-    }
-
     func addObjectToResults() {
-        let realm = realmWithTestPath()
+        let realm = self.realm()
         try! realm.write {
             realm.create(CTTNullableStringObjectWithLink.self, value: ["a"])
         }
     }
 
     func testNotificationBlockUpdating() {
-        let collection = collectionBase()
-
         var theExpectation = expectation(description: "")
         var calls = 0
         let token = collection.observe { (changes: RealmCollectionChange) in
             switch changes {
             case .initial(let results):
                 XCTAssertEqual(results.count, calls + 2)
-                XCTAssertEqual(results, collection)
+                XCTAssertEqual(results, self.collection)
             case .update(let results, _, _, _):
                 XCTAssertEqual(results.count, calls + 2)
-                XCTAssertEqual(results, collection)
+                XCTAssertEqual(results, self.collection)
             case .error:
                 XCTFail("Shouldn't happen")
             }
@@ -1182,8 +1271,6 @@ class ResultsTests: RealmCollectionTypeTests {
     }
 
     func testNotificationBlockChangeIndices() {
-        let collection = collectionBase()
-
         var theExpectation = expectation(description: "")
         var calls = 0
         let token = collection.observe { (change: RealmCollectionChange) in
@@ -1211,10 +1298,6 @@ class ResultsTests: RealmCollectionTypeTests {
         waitForExpectations(timeout: 1, handler: nil)
 
         token.invalidate()
-    }
-
-    func testObserveDirectOnQueue() {
-        observeOnQueue(collectionBase())
     }
 }
 
@@ -1350,45 +1433,42 @@ class ResultsDistinctTests: TestCase {
 }
 
 class ResultsFromTableTests: ResultsTests {
-    override func collectionBaseInWriteTransaction() -> Results<CTTNullableStringObjectWithLink> {
-        return realmWithTestPath().objects(CTTNullableStringObjectWithLink.self)
+    override func getCollection(_ realm: Realm) -> Results<CTTNullableStringObjectWithLink> {
+        return realm.objects(CTTNullableStringObjectWithLink.self)
     }
 
-    override func getAggregateableCollection() -> AnyRealmCollection<CTTAggregateObject> {
-        _ = makeAggregateableObjects()
-        return AnyRealmCollection(realmWithTestPath().objects(CTTAggregateObject.self))
+    override func getAggregateableCollectionInWrite(_ realm: Realm) -> Results<CTTAggregateObject> {
+        _ = makeAggregateableObjectsInWriteTransaction()
+        return realm.objects(CTTAggregateObject.self)
     }
 }
 
 class ResultsFromTableViewTests: ResultsTests {
-    override func collectionBaseInWriteTransaction() -> Results<CTTNullableStringObjectWithLink> {
-        return realmWithTestPath().objects(CTTNullableStringObjectWithLink.self).filter("stringCol != ''")
+    override func getCollection(_ realm: Realm) -> Results<CTTNullableStringObjectWithLink> {
+        return realm.objects(CTTNullableStringObjectWithLink.self).filter("stringCol != ''")
     }
 
-    override func getAggregateableCollection() -> AnyRealmCollection<CTTAggregateObject> {
-        _ = makeAggregateableObjects()
-        return AnyRealmCollection(realmWithTestPath().objects(CTTAggregateObject.self).filter("trueCol == true"))
+    override func getAggregateableCollectionInWrite(_ realm: Realm) -> Results<CTTAggregateObject> {
+        _ = makeAggregateableObjectsInWriteTransaction()
+        return realm.objects(CTTAggregateObject.self).filter("trueCol == true")
     }
 }
 
 class ResultsFromLinkViewTests: ResultsTests {
-    override func collectionBaseInWriteTransaction() -> Results<CTTNullableStringObjectWithLink> {
-        let array = realmWithTestPath().create(CTTStringList.self, value: [[str1, str2]])
+    override func getCollection(_ realm: Realm) -> Results<CTTNullableStringObjectWithLink> {
+        let array = realm.create(CTTStringList.self, value: [[str1, str2]])
         return array.array.filter(NSPredicate(value: true))
     }
 
-    override func getAggregateableCollection() -> AnyRealmCollection<CTTAggregateObject> {
-        var list: CTTAggregateObjectList?
-        try! realmWithTestPath().write {
-            list = CTTAggregateObjectList()
-            realmWithTestPath().add(list!)
-            list!.list.append(objectsIn: makeAggregateableObjectsInWriteTransaction())
-        }
-        return AnyRealmCollection(list!.list.filter(NSPredicate(value: true)))
+    override func getAggregateableCollectionInWrite(_ realm: Realm) -> Results<CTTAggregateObject> {
+        let list = CTTAggregateObjectList()
+        realm.add(list)
+        list.list.append(objectsIn: makeAggregateableObjectsInWriteTransaction())
+        return list.list.filter(NSPredicate(value: true))
     }
 
     override func addObjectToResults() {
-        let realm = realmWithTestPath()
+        let realm = self.realm()
         try! realm.write {
             let array = realm.objects(CTTStringList.self).last!
             array.array.append(realm.create(CTTNullableStringObjectWithLink.self, value: ["a"]))
@@ -1398,96 +1478,28 @@ class ResultsFromLinkViewTests: ResultsTests {
 
 // MARK: List
 
-class ListRealmCollectionTypeTests: RealmCollectionTypeTests {
+class ListRealmCollectionTests: RealmCollectionTests<List<CTTNullableStringObjectWithLink>, List<CTTAggregateObject>> {
     override class var defaultTestSuite: XCTestSuite {
         // Don't run tests for the base class
-        if isEqual(ListRealmCollectionTypeTests.self) {
+        if isEqual(ListRealmCollectionTests.self) {
             return XCTestSuite(name: "empty")
         }
         return super.defaultTestSuite
     }
 
-    func collectionBaseInWriteTransaction() -> List<CTTNullableStringObjectWithLink> {
-        fatalError("abstract")
-    }
-
-    final func collectionBase() -> List<CTTNullableStringObjectWithLink> {
-        var collection: List<CTTNullableStringObjectWithLink>?
-        try! realmWithTestPath().write {
-            collection = collectionBaseInWriteTransaction()
-        }
-        return collection!
-    }
-
-    override func getCollection() -> AnyRealmCollection<CTTNullableStringObjectWithLink> {
-        return AnyRealmCollection(collectionBase())
-    }
-
-    override func testAssignListProperty() {
-        try! realmWithTestPath().write {
-            let array = CTTStringList()
-            realmWithTestPath().add(array)
-            array["array"] = collectionBaseInWriteTransaction()
-        }
-    }
-
-    override func testAssignSetProperty() { }
-
     override func testDescription() {
         // swiftlint:disable:next line_length
         assertMatches(collection.description, "List<CTTNullableStringObjectWithLink> <0x[0-9a-f]+> \\(\n\t\\[0\\] CTTNullableStringObjectWithLink \\{\n\t\tstringCol = 1;\n\t\tlinkCol = CTTLinkTarget \\{\n\t\t\tid = 1;\n\t\t\\};\n\t\\},\n\t\\[1\\] CTTNullableStringObjectWithLink \\{\n\t\tstringCol = 2;\n\t\tlinkCol = CTTLinkTarget \\{\n\t\t\tid = 1;\n\t\t\\};\n\t\\}\n\\)")
     }
-
-    func testObserveDirect() {
-        let collection = collectionBase()
-
-        var theExpectation = expectation(description: "")
-        let token = collection.observe { (changes: RealmCollectionChange) in
-            switch changes {
-            case .initial(let collection):
-                XCTAssertEqual(collection.count, 2)
-            case .update:
-                XCTFail("Shouldn't happen")
-            case .error:
-                XCTFail("Shouldn't happen")
-            }
-
-            theExpectation.fulfill()
-        }
-        waitForExpectations(timeout: 1, handler: nil)
-
-        // add a second notification and wait for it
-        theExpectation = expectation(description: "")
-        let token2 = collection.observe { _ in
-            theExpectation.fulfill()
-        }
-        waitForExpectations(timeout: 1, handler: nil)
-
-        // make a write and implicitly verify that only the unskipped
-        // notification is called (the first would error on .update)
-        theExpectation = expectation(description: "")
-        let realm = realmWithTestPath()
-        realm.beginWrite()
-        realm.delete(collection)
-        try! realm.commitWrite(withoutNotifying: [token])
-        waitForExpectations(timeout: 1, handler: nil)
-
-        token.invalidate()
-        token2.invalidate()
-    }
-
-    func testObserveDirectOnQueue() {
-        observeOnQueue(collectionBase())
-    }
 }
 
-class ListUnmanagedRealmCollectionTypeTests: ListRealmCollectionTypeTests {
-    override func collectionBaseInWriteTransaction() -> List<CTTNullableStringObjectWithLink> {
+class ListUnmanagedRealmCollectionTests: ListRealmCollectionTests {
+    override func getCollection(_ realm: Realm) -> List<CTTNullableStringObjectWithLink> {
         return CTTStringList(value: [[str1, str2]]).array
     }
 
-    override func getAggregateableCollection() -> AnyRealmCollection<CTTAggregateObject> {
-        return AnyRealmCollection(CTTAggregateObjectList(value: [makeAggregateableObjects()]).list)
+    override func getAggregateableCollectionInWrite(_ realm: Realm) -> List<CTTAggregateObject> {
+        return CTTAggregateObjectList(value: [makeAggregateableObjectsInWriteTransaction()]).list
     }
 
     override func testRealm() {
@@ -1543,6 +1555,7 @@ class ListUnmanagedRealmCollectionTypeTests: ListRealmCollectionTypeTests {
     override func testFilterFormat() {
         assertThrows(collection.filter("stringCol = '1'"))
         assertThrows(collection.filter("noSuchCol = '1'"))
+        assertThrows(collection.where { $0.stringCol == "1" })
     }
 
     override func testFilterPredicate() {
@@ -1605,16 +1618,6 @@ class ListUnmanagedRealmCollectionTypeTests: ListRealmCollectionTypeTests {
         assertThrows(collection.observe(on: DispatchQueue(label: "bg")) { _ in })
     }
 
-    override func testObserveDirect() {
-        let collection = collectionBase()
-        assertThrows(collection.observe { _ in })
-    }
-
-    override func testObserveDirectOnQueue() {
-        let collection = collectionBase()
-        assertThrows(collection.observe(on: DispatchQueue(label: "bg")) { _ in })
-    }
-
     func testFreeze() {
         assertThrows(collection.freeze(),
                      reason: "This method may only be called on RLMArray instances retrieved from an RLMRealm")
@@ -1624,151 +1627,100 @@ class ListUnmanagedRealmCollectionTypeTests: ListRealmCollectionTypeTests {
         XCTAssertFalse(collection.isFrozen)
     }
 
-    override func testThaw() {
-    }
-
-    override func testThawFromDifferentThread() {
-    }
-
-    override func testThawPreviousVersion() {
-    }
-
-    override func testThawDeletedParent() {
-    }
-
-    override func testThawUpdatedOnDifferentThread() {
-    }
-
-    override func testFreezeFromWrongThread() {
-    }
-
-    override func testAccessFrozenCollectionFromDifferentThread() {
-    }
-
-    override func testObserveFrozenCollection() {
-    }
-
-    override func testQueryFrozenCollection() {
-    }
+    override func testThaw() {}
+    override func testThawFromDifferentThread() {}
+    override func testThawPreviousVersion() {}
+    override func testThawDeletedParent() {}
+    override func testThawUpdatedOnDifferentThread() {}
+    override func testFreezeFromWrongThread() {}
+    override func testAccessFrozenCollectionFromDifferentThread() {}
+    override func testObserveFrozenCollection() {}
+    override func testQueryFrozenCollection() {}
 }
 
-class ListNewlyAddedRealmCollectionTypeTests: ListRealmCollectionTypeTests {
-    override func collectionBaseInWriteTransaction() -> List<CTTNullableStringObjectWithLink> {
+class ListNewlyAddedRealmCollectionTests: ListRealmCollectionTests {
+    override func getCollection(_ realm: Realm) -> List<CTTNullableStringObjectWithLink> {
         let array = CTTStringList(value: [[str1, str2]])
-        realmWithTestPath().add(array)
+        realm.add(array)
         return array.array
     }
 
-    override func getAggregateableCollection() -> AnyRealmCollection<CTTAggregateObject> {
-        var list: CTTAggregateObjectList?
-        try! realmWithTestPath().write {
-            list = CTTAggregateObjectList(value: [makeAggregateableObjectsInWriteTransaction()])
-            realmWithTestPath().add(list!)
-        }
-        return AnyRealmCollection(list!.list)
+    override func getAggregateableCollectionInWrite(_ realm: Realm) -> List<CTTAggregateObject> {
+        let list = CTTAggregateObjectList(value: [makeAggregateableObjectsInWriteTransaction()])
+        realm.add(list)
+        return list.list
     }
 }
 
-class ListNewlyCreatedRealmCollectionTypeTests: ListRealmCollectionTypeTests {
-    override func collectionBaseInWriteTransaction() -> List<CTTNullableStringObjectWithLink> {
-        let array = realmWithTestPath().create(CTTStringList.self, value: [[str1, str2]])
-        return array.array
+class ListNewlyCreatedRealmCollectionTests: ListRealmCollectionTests {
+    override func getCollection(_ realm: Realm) -> List<CTTNullableStringObjectWithLink> {
+        realm.create(CTTStringList.self, value: [[str1, str2]]).array
     }
 
-    override func getAggregateableCollection() -> AnyRealmCollection<CTTAggregateObject> {
-        var list: CTTAggregateObjectList?
-        try! realmWithTestPath().write {
-            list = realmWithTestPath().create(CTTAggregateObjectList.self,
-                                                    value: [makeAggregateableObjectsInWriteTransaction()])
-        }
-        return AnyRealmCollection(list!.list)
+    override func getAggregateableCollectionInWrite(_ realm: Realm) -> List<CTTAggregateObject> {
+        realm.create(CTTAggregateObjectList.self,
+                     value: [makeAggregateableObjectsInWriteTransaction()]).list
     }
 }
 
-class ListRetrievedRealmCollectionTypeTests: ListRealmCollectionTypeTests {
-    override func collectionBaseInWriteTransaction() -> List<CTTNullableStringObjectWithLink> {
-        _ = realmWithTestPath().create(CTTStringList.self, value: [[str1, str2]])
-        let array = realmWithTestPath().objects(CTTStringList.self).first!
-        return array.array
+class ListRetrievedRealmCollectionTests: ListRealmCollectionTests {
+    override func getCollection(_ realm: Realm) -> List<CTTNullableStringObjectWithLink> {
+        _ = realm.create(CTTStringList.self, value: [[str1, str2]])
+        return realm.objects(CTTStringList.self).first!.array
     }
 
-    override func getAggregateableCollection() -> AnyRealmCollection<CTTAggregateObject> {
-        var list: CTTAggregateObjectList?
-        try! realmWithTestPath().write {
-            _ = realmWithTestPath().create(CTTAggregateObjectList.self,
-                                                 value: [makeAggregateableObjectsInWriteTransaction()])
-            list = realmWithTestPath().objects(CTTAggregateObjectList.self).first
-        }
-        return AnyRealmCollection(list!.list)
+    override func getAggregateableCollectionInWrite(_ realm: Realm) -> List<CTTAggregateObject> {
+        _ = realm.create(CTTAggregateObjectList.self,
+                         value: [makeAggregateableObjectsInWriteTransaction()])
+        return realm.objects(CTTAggregateObjectList.self).first!.list
     }
 }
 
 // MARK: MutableSet
 
-class MutableSetRealmCollectionTypeTests: RealmCollectionTypeTests {
+class MutableSetRealmCollectionTests: RealmCollectionTests<MutableSet<CTTNullableStringObjectWithLink>, MutableSet<CTTAggregateObject>> {
     override class var defaultTestSuite: XCTestSuite {
         // Don't run tests for the base class
-        if isEqual(MutableSetRealmCollectionTypeTests.self) {
+        if isEqual(MutableSetRealmCollectionTests.self) {
             return XCTestSuite(name: "empty")
         }
         return super.defaultTestSuite
     }
 
-    func collectionBaseInWriteTransaction() -> MutableSet<CTTNullableStringObjectWithLink> {
-        fatalError("abstract")
-    }
-
-    final func collectionBase() -> MutableSet<CTTNullableStringObjectWithLink> {
-        var collection: MutableSet<CTTNullableStringObjectWithLink>?
-        try! realmWithTestPath().write {
-            collection = collectionBaseInWriteTransaction()
-        }
-        return collection!
-    }
-
-    override func getCollection() -> AnyRealmCollection<CTTNullableStringObjectWithLink> {
-        return AnyRealmCollection(collectionBase())
-    }
-
-    override func testAssignListProperty() { }
-
+    // Tests which don't apply to Set
     override func testIndexOfObject() { }
-
     override func testIndexOfFormat() { }
-
     override func testIndexOfPredicate() { }
+    override func testIndexOfQuery() {}
 
-    override func testSubscript() { }
+    // These can give any object in the Set
+    override func testFirst() {
+        let first = collection.first!
+        XCTAssert(first.isSameObject(as: str1) || first.isSameObject(as: str2))
+    }
 
-    override func testObjectsAtIndexes() { }
-
-    override func testFirst() { }
-
-    override func testLast() { }
+    override func testLast() {
+        let last = collection.last!
+        XCTAssert(last.isSameObject(as: str1) || last.isSameObject(as: str2))
+    }
 
     override func testValueForKey() {
         let expected = Set(collection.map { $0.stringCol })
-        let actual = collection.value(forKey: "stringCol") as! Set<String>?
+        let actual = collection.value(forKey: "stringCol") as Any? as! Set<String>?
         XCTAssertEqual(expected, actual!)
+        let actual2 = collection.value(forKey: "stringCol") as [AnyObject] as! [String]
+        XCTAssertEqual(expected, Set(actual2))
         // comparing value(forKey: "self") won't work because an NSSet will be produced, we don't know
         // the order of the objects and using [NSSet contains] won't work for a linked object.
     }
 
     override func testValueForKeyPath() {
-        let theCollection = getAggregateableCollection()
-        XCTAssertEqual(3, (theCollection.value(forKeyPath: "@count") as! NSNumber?)?.int64Value)
-        XCTAssertEqual(3, (theCollection.value(forKeyPath: "@max.intCol") as! NSNumber?)?.int64Value)
-        XCTAssertEqual(1, (theCollection.value(forKeyPath: "@min.intCol") as! NSNumber?)?.int64Value)
-        XCTAssertEqual(6, (theCollection.value(forKeyPath: "@sum.intCol") as! NSNumber?)?.int64Value)
-        XCTAssertEqual(2.0, (theCollection.value(forKeyPath: "@avg.intCol") as! NSNumber?)?.doubleValue)
-    }
-
-    override func testAssignSetProperty() {
-        try! realmWithTestPath().write {
-            let set = CTTStringSet()
-            realmWithTestPath().add(set)
-            set["set"] = collectionBaseInWriteTransaction()
-        }
+        let collection = getAggregateableCollection()
+        XCTAssertEqual(3, (collection.value(forKeyPath: "@count") as! NSNumber?)?.int64Value)
+        XCTAssertEqual(3, (collection.value(forKeyPath: "@max.intCol") as! NSNumber?)?.int64Value)
+        XCTAssertEqual(1, (collection.value(forKeyPath: "@min.intCol") as! NSNumber?)?.int64Value)
+        XCTAssertEqual(6, (collection.value(forKeyPath: "@sum.intCol") as! NSNumber?)?.int64Value)
+        XCTAssertEqual(2.0, (collection.value(forKeyPath: "@avg.intCol") as! NSNumber?)?.doubleValue)
     }
 
     override func testAccessFrozenCollectionFromDifferentThread() {
@@ -1794,57 +1746,15 @@ class MutableSetRealmCollectionTypeTests: RealmCollectionTypeTests {
         // swiftlint:disable:next line_length
         assertMatches(collection.description, "MutableSet<CTTNullableStringObjectWithLink> <0x[0-9a-f]+> \\(\n\t\\[0\\] CTTNullableStringObjectWithLink \\{\n\t\tstringCol = [0-9]+;\n\t\tlinkCol = CTTLinkTarget \\{\n\t\t\tid = 1;\n\t\t\\};\n\t\\},\n\t\\[1\\] CTTNullableStringObjectWithLink \\{\n\t\tstringCol = [0-9]+;\n\t\tlinkCol = CTTLinkTarget \\{\n\t\t\tid = 1;\n\t\t\\};\n\t\\}\n\\)")
     }
-
-    func testObserveDirect() {
-        let collection = collectionBase()
-
-        var theExpectation = expectation(description: "")
-        let token = collection.observe { (changes: RealmCollectionChange) in
-            switch changes {
-            case .initial(let collection):
-                XCTAssertEqual(collection.count, 2)
-            case .update:
-                XCTFail("Shouldn't happen")
-            case .error:
-                XCTFail("Shouldn't happen")
-            }
-
-            theExpectation.fulfill()
-        }
-        waitForExpectations(timeout: 1, handler: nil)
-
-        // add a second notification and wait for it
-        theExpectation = expectation(description: "")
-        let token2 = collection.observe { _ in
-            theExpectation.fulfill()
-        }
-        waitForExpectations(timeout: 1, handler: nil)
-
-        // make a write and implicitly verify that only the unskipped
-        // notification is called (the first would error on .update)
-        theExpectation = expectation(description: "")
-        let realm = realmWithTestPath()
-        realm.beginWrite()
-        realm.delete(collection)
-        try! realm.commitWrite(withoutNotifying: [token])
-        waitForExpectations(timeout: 1, handler: nil)
-
-        token.invalidate()
-        token2.invalidate()
-    }
-
-    func testObserveDirectOnQueue() {
-        observeOnQueue(collectionBase())
-    }
 }
 
-class MutableSetUnmanagedRealmCollectionTypeTests: MutableSetRealmCollectionTypeTests {
-    override func collectionBaseInWriteTransaction() -> MutableSet<CTTNullableStringObjectWithLink> {
+class MutableSetUnmanagedRealmCollectionTests: MutableSetRealmCollectionTests {
+    override func getCollection(_ realm: Realm) -> MutableSet<CTTNullableStringObjectWithLink> {
         return CTTStringSet(value: [[str1, str2]]).set
     }
 
-    override func getAggregateableCollection() -> AnyRealmCollection<CTTAggregateObject> {
-        return AnyRealmCollection(CTTAggregateObjectSet(value: [makeAggregateableObjects()]).set)
+    override func getAggregateableCollectionInWrite(_ realm: Realm) -> MutableSet<CTTAggregateObject> {
+        return CTTAggregateObjectSet(value: [makeAggregateableObjectsInWriteTransaction()]).set
     }
 
     override func testRealm() {
@@ -1913,16 +1823,6 @@ class MutableSetUnmanagedRealmCollectionTypeTests: MutableSetRealmCollectionType
         assertThrows(collection.observe(on: DispatchQueue(label: "bg")) { _ in })
     }
 
-    override func testObserveDirect() {
-        let collection = collectionBase()
-        assertThrows(collection.observe { _ in })
-    }
-
-    override func testObserveDirectOnQueue() {
-        let collection = collectionBase()
-        assertThrows(collection.observe(on: DispatchQueue(label: "bg")) { _ in })
-    }
-
     override func testObserveKeyPath() {
         assertThrows(collection.observe { _ in })
     }
@@ -1968,139 +1868,90 @@ class MutableSetUnmanagedRealmCollectionTypeTests: MutableSetRealmCollectionType
         XCTAssertFalse(collection.isFrozen)
     }
 
-    override func testThaw() {
-    }
-
-    override func testThawFromDifferentThread() {
-    }
-
-    override func testThawPreviousVersion() {
-    }
-
-    override func testThawDeletedParent() {
-    }
-
-    override func testThawUpdatedOnDifferentThread() {
-    }
-
-    override func testFreezeFromWrongThread() {
-    }
-
-    override func testAccessFrozenCollectionFromDifferentThread() {
-    }
-
-    override func testObserveFrozenCollection() {
-    }
-
-    override func testQueryFrozenCollection() {
-    }
+    override func testThaw() {}
+    override func testThawFromDifferentThread() {}
+    override func testThawPreviousVersion() {}
+    override func testThawDeletedParent() {}
+    override func testThawUpdatedOnDifferentThread() {}
+    override func testFreezeFromWrongThread() {}
+    override func testAccessFrozenCollectionFromDifferentThread() {}
+    override func testObserveFrozenCollection() {}
+    override func testQueryFrozenCollection() {}
 }
 
-class MutableSetNewlyAddedRealmCollectionTypeTests: MutableSetRealmCollectionTypeTests {
-    override func collectionBaseInWriteTransaction() -> MutableSet<CTTNullableStringObjectWithLink> {
+class MutableSetNewlyAddedRealmCollectionTests: MutableSetRealmCollectionTests {
+    override func getCollection(_ realm: Realm) -> MutableSet<CTTNullableStringObjectWithLink> {
         let set = CTTStringSet(value: [[str1, str2]])
-        realmWithTestPath().add(set)
+        realm.add(set)
         return set.set
     }
 
-    override func getAggregateableCollection() -> AnyRealmCollection<CTTAggregateObject> {
-        var set: CTTAggregateObjectSet?
-        try! realmWithTestPath().write {
-            set = CTTAggregateObjectSet(value: [makeAggregateableObjectsInWriteTransaction()])
-            realmWithTestPath().add(set!)
-        }
-        return AnyRealmCollection(set!.set)
-    }
-}
-
-class MutableSetNewlyCreatedRealmCollectionTypeTests: MutableSetRealmCollectionTypeTests {
-    override func collectionBaseInWriteTransaction() -> MutableSet<CTTNullableStringObjectWithLink> {
-        let set = realmWithTestPath().create(CTTStringSet.self, value: [[str1, str2]])
+    override func getAggregateableCollectionInWrite(_ realm: Realm) -> MutableSet<CTTAggregateObject> {
+        let set = CTTAggregateObjectSet(value: [makeAggregateableObjectsInWriteTransaction()])
+        realm.add(set)
         return set.set
     }
+}
 
-    override func getAggregateableCollection() -> AnyRealmCollection<CTTAggregateObject> {
-        var set: CTTAggregateObjectSet?
-        try! realmWithTestPath().write {
-            set = realmWithTestPath().create(CTTAggregateObjectSet.self,
-                                                    value: [makeAggregateableObjectsInWriteTransaction()])
-        }
-        return AnyRealmCollection(set!.set)
+class MutableSetNewlyCreatedRealmCollectionTests: MutableSetRealmCollectionTests {
+    override func getCollection(_ realm: Realm) -> MutableSet<CTTNullableStringObjectWithLink> {
+        realm.create(CTTStringSet.self, value: [[str1, str2]]).set
+    }
+
+    override func getAggregateableCollectionInWrite(_ realm: Realm) -> MutableSet<CTTAggregateObject> {
+        realm.create(CTTAggregateObjectSet.self,
+                     value: [makeAggregateableObjectsInWriteTransaction()]).set
     }
 }
 
-class MutableSetRetrievedRealmCollectionTypeTests: MutableSetRealmCollectionTypeTests {
-    override func collectionBaseInWriteTransaction() -> MutableSet<CTTNullableStringObjectWithLink> {
-        _ = realmWithTestPath().create(CTTStringSet.self, value: [[str1, str2]])
-        let set = realmWithTestPath().objects(CTTStringSet.self).first!
-        return set.set
+class MutableSetRetrievedRealmCollectionTests: MutableSetRealmCollectionTests {
+    override func getCollection(_ realm: Realm) -> MutableSet<CTTNullableStringObjectWithLink> {
+        _ = realm.create(CTTStringSet.self, value: [[str1, str2]])
+        return realm.objects(CTTStringSet.self).first!.set
     }
 
-    override func getAggregateableCollection() -> AnyRealmCollection<CTTAggregateObject> {
-        var set: CTTAggregateObjectSet?
-        try! realmWithTestPath().write {
-            _ = realmWithTestPath().create(CTTAggregateObjectSet.self,
-                                                 value: [makeAggregateableObjectsInWriteTransaction()])
-            set = realmWithTestPath().objects(CTTAggregateObjectSet.self).first
-        }
-        return AnyRealmCollection(set!.set)
+    override func getAggregateableCollectionInWrite(_ realm: Realm) -> MutableSet<CTTAggregateObject> {
+        _ = realm.create(CTTAggregateObjectSet.self,
+                         value: [makeAggregateableObjectsInWriteTransaction()])
+        return realm.objects(CTTAggregateObjectSet.self).first!.set
     }
 }
-class LinkingObjectsCollectionTypeTests: RealmCollectionTypeTests {
-    func collectionBaseInWriteTransaction() -> LinkingObjects<CTTNullableStringObjectWithLink> {
-        let target = realmWithTestPath().create(CTTLinkTarget.self, value: [0])
-        for object in realmWithTestPath().objects(CTTNullableStringObjectWithLink.self) {
+class LinkingObjectsCollectionTypeTests: RealmCollectionTests<LinkingObjects<CTTNullableStringObjectWithLink>, LinkingObjects<CTTAggregateObject>> {
+    override func getCollection(_ realm: Realm) -> LinkingObjects<CTTNullableStringObjectWithLink> {
+        let target = realm.create(CTTLinkTarget.self, value: [0])
+        for object in realm.objects(CTTNullableStringObjectWithLink.self) {
             object.linkCol = target
         }
         return target.stringObjects
     }
 
-    final func collectionBase() -> LinkingObjects<CTTNullableStringObjectWithLink> {
-        var result: LinkingObjects<CTTNullableStringObjectWithLink>?
-        try! realmWithTestPath().write {
-            result = collectionBaseInWriteTransaction()
+    override func getAggregateableCollectionInWrite(_ realm: Realm) -> LinkingObjects<CTTAggregateObject> {
+        let objects = makeAggregateableObjectsInWriteTransaction()
+        let target = realm.create(CTTLinkTarget.self, value: [0])
+        for object in objects {
+            object.linkCol = target
         }
-        return result!
-    }
-
-    override func getCollection() -> AnyRealmCollection<CTTNullableStringObjectWithLink> {
-        return AnyRealmCollection(collectionBase())
-    }
-
-    override func getAggregateableCollection() -> AnyRealmCollection<CTTAggregateObject> {
-        var target: CTTLinkTarget?
-        try! realmWithTestPath().write {
-            let objects = makeAggregateableObjectsInWriteTransaction()
-            target = realmWithTestPath().create(CTTLinkTarget.self, value: [0])
-            for object in objects {
-                object.linkCol = target
-            }
-        }
-        return AnyRealmCollection(target!.aggregateObjects)
+        return target.aggregateObjects
     }
 
     override func testDescription() {
         // swiftlint:disable:next line_length
         assertMatches(collection.description, "LinkingObjects<CTTNullableStringObjectWithLink> <0x[0-9a-f]+> \\(\n\t\\[0\\] CTTNullableStringObjectWithLink \\{\n\t\tstringCol = 1;\n\t\tlinkCol = CTTLinkTarget \\{\n\t\t\tid = 0;\n\t\t\\};\n\t\\},\n\t\\[1\\] CTTNullableStringObjectWithLink \\{\n\t\tstringCol = 2;\n\t\tlinkCol = CTTLinkTarget \\{\n\t\t\tid = 0;\n\t\t\\};\n\t\\}\n\\)")
     }
+}
 
-    override func testAssignListProperty() {
-        let array = CTTStringList()
-        try! realmWithTestPath().write {
-            realmWithTestPath().add(array)
-            array["array"] = collectionBaseInWriteTransaction()
-        }
+class AnyRealmCollectionTests: RealmCollectionTests<AnyRealmCollection<CTTNullableStringObjectWithLink>, AnyRealmCollection<CTTAggregateObject>> {
+    override func getCollection(_ realm: Realm) -> AnyRealmCollection<CTTNullableStringObjectWithLink> {
+        AnyRealmCollection(realm.create(CTTStringList.self, value: [[str1, str2]]).array)
     }
 
-    override func testAssignSetProperty() {
-        let set = CTTStringSet()
-        try! realmWithTestPath().write {
-            realmWithTestPath().add(set)
-            set["set"] = collectionBaseInWriteTransaction()
-        }
+    override func getAggregateableCollectionInWrite(_ realm: Realm) -> AnyRealmCollection<CTTAggregateObject> {
+        AnyRealmCollection(realm.create(CTTAggregateObjectSet.self,
+                                        value: [makeAggregateableObjectsInWriteTransaction()]).set)
     }
 
-    func testObserveDirectOnQueue() {
-        observeOnQueue(collectionBase())
+    override func testDescription() {
+        // swiftlint:disable:next line_length
+        assertMatches(collection.description, "AnyRealmCollection<CTTNullableStringObjectWithLink> <0x[0-9a-f]+> \\(\n\t\\[0\\] CTTNullableStringObjectWithLink \\{\n\t\tstringCol = 1;\n\t\tlinkCol = CTTLinkTarget \\{\n\t\t\tid = 1;\n\t\t\\};\n\t\\},\n\t\\[1\\] CTTNullableStringObjectWithLink \\{\n\t\tstringCol = 2;\n\t\tlinkCol = CTTLinkTarget \\{\n\t\t\tid = 1;\n\t\t\\};\n\t\\}\n\\)")
     }
 }

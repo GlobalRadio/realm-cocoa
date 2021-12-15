@@ -27,7 +27,7 @@ import RealmSyncTestSupport
 #endif
 
 public extension User {
-    func configuration(testName: String) -> Realm.Configuration {
+    func configuration<T: BSON>(testName: T) -> Realm.Configuration {
         var config = self.configuration(partitionValue: testName)
         config.objectTypes = [SwiftPerson.self, SwiftHugeSyncObject.self, SwiftTypesSyncObject.self]
         return config
@@ -37,6 +37,21 @@ public extension User {
 public func randomString(_ length: Int) -> String {
     let letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     return String((0..<length).map { _ in letters.randomElement()! })
+}
+
+public typealias ChildProcessEnvironment = RLMChildProcessEnvironment
+
+public enum ProcessKind {
+    case parent
+    case child(environment: ChildProcessEnvironment)
+
+    public static var current: ProcessKind {
+        if getenv("RLMProcessIsChild") == nil {
+            return .parent
+        } else {
+            return .child(environment: ChildProcessEnvironment.current())
+        }
+    }
 }
 
 open class SwiftSyncTestCase: RLMSyncTestCase {
@@ -166,10 +181,11 @@ open class SwiftSyncTestCase: RLMSyncTestCase {
     }
 
     public static let bigObjectCount = 2
-    public func populateRealm(user: User? = nil, partitionValue: String) {
+    public func populateRealm<T: BSON>(user: User? = nil, partitionValue: T) {
         do {
             let user = try (user ?? logInUser(for: basicCredentials()))
             let config = user.configuration(testName: partitionValue)
+
             let realm = try openRealm(configuration: config)
             try! realm.write {
                 for _ in 0..<SwiftSyncTestCase.bigObjectCount {
@@ -184,4 +200,18 @@ open class SwiftSyncTestCase: RLMSyncTestCase {
     }
 }
 
+#if swift(>=5.5.2) && canImport(_Concurrency)
+
+@available(macOS 12.0, *)
+extension SwiftSyncTestCase {
+    public func basicCredentials(usernameSuffix: String = "", app: App? = nil) async throws -> Credentials {
+        let email = "\(randomString(10))\(usernameSuffix)"
+        let password = "abcdef"
+        let credentials = Credentials.emailPassword(email: email, password: password)
+        try await (app ?? self.app).emailPasswordAuth.registerUser(email: email, password: password)
+        return credentials
+    }
+}
+
+#endif // swift(>=5.5)
 #endif // os(macOS)

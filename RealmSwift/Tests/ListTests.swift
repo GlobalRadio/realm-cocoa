@@ -89,6 +89,8 @@ class ListTests: TestCase {
         XCTAssertEqual(obj.int.index(of: 6), 1)
         XCTAssertEqual(2, obj.int.index(matching: NSPredicate(format: "self == 7")))
         XCTAssertNil(obj.int.index(matching: NSPredicate(format: "self == 9")))
+        XCTAssertEqual(2, obj.int.index(matching: { $0 == 7 && $0 < 456 }))
+        XCTAssertNil(obj.int.index(matching: { $0 == 9 }))
         XCTAssertEqual(obj.int.max(), 8)
         XCTAssertEqual(obj.int.sum(), 26)
 
@@ -223,6 +225,23 @@ class ListTests: TestCase {
 
         assertThrows(array.remove(at: 2))
         assertThrows(array.remove(at: -2))
+    }
+
+    func testRemoveAtOffsets() {
+        guard let array = array, let str1 = str1, let str2 = str2 else {
+            fatalError("Test precondition failure")
+        }
+
+        array.append(objectsIn: [str1, str2, str1])
+        array.remove(atOffsets: [0, 2])
+
+        XCTAssertEqual(array.count, 1)
+        assertEqual(str2, array[0])
+
+        array.remove(atOffsets: [])
+        XCTAssertEqual(array.count, 1)
+
+        assertThrows(array.remove(atOffsets: [1]))
     }
 
     func testRemoveLast() {

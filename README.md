@@ -149,9 +149,11 @@ Run `sh build.sh help` to see all the actions you can perform (build ios/osx, ge
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for more details!
 
-This project adheres to the [Contributor Covenant Code of Conduct](https://realm.io/conduct).
+## Code of Conduct
+
+This project adheres to the [MongoDB Code of Conduct](https://www.mongodb.com/community-code-of-conduct).
 By participating, you are expected to uphold this code. Please report
-unacceptable behavior to [info@realm.io](mailto:info@realm.io).
+unacceptable behavior to [community-conduct@mongodb.com](mailto:community-conduct@mongodb.com).
 
 ## License
 
@@ -169,4 +171,4 @@ not eligible to receive the product under U.S. law.**
 
 **_And if you don't like it, please let us know what you would like improved, so we can fix it!_**
 
-![analytics](https://ga-beacon.appspot.com/UA-50247013-2/realm-cocoa/README?pixel)
+<img style="width: 0px; height: 0px;" src="https://3eaz4mshcd.execute-api.us-east-1.amazonaws.com/prod?s=https://github.com/realm/realm-cocoa#README.md">
