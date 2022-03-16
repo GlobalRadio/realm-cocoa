@@ -3,8 +3,8 @@
 import PackageDescription
 import Foundation
 
-let coreVersionStr = "11.3.1"
-let cocoaVersionStr = "10.14.0"
+let coreVersionStr = "11.11.0"
+let cocoaVersionStr = "10.24.1"
 
 let coreVersionPieces = coreVersionStr.split(separator: ".")
 let coreVersionExtra = coreVersionPieces[2].split(separator: "-")
@@ -46,7 +46,7 @@ func hostMachineArch() -> String {
     return String(bytes: machineBytes, encoding: .utf8)!
 }
 let testSwiftSettings: [SwiftSetting]?
-#if swift(>=5.4)
+#if swift(>=5.4) && !swift(>=5.5)
 testSwiftSettings = [.unsafeFlags(["-target", "\(hostMachineArch())-apple-macosx11.0"])]
 #else
 testSwiftSettings = nil
@@ -59,8 +59,10 @@ let objectServerTestSources = [
     "ObjectServerTests-Info.plist",
     "RLMBSONTests.mm",
     "RLMCollectionSyncTests.mm",
+    "RLMFlexibleSyncServerTests.mm",
     "RLMObjectServerPartitionTests.mm",
     "RLMObjectServerTests.mm",
+    "RLMServerTestObjects.m",
     "RLMSyncTestCase.h",
     "RLMSyncTestCase.mm",
     "RLMTestUtils.h",
@@ -71,9 +73,13 @@ let objectServerTestSources = [
     "RLMWatchTestUtility.m",
     "RealmServer.swift",
     "SwiftCollectionSyncTests.swift",
+    "SwiftFlexibleSyncServerTests.swift",
+    "SwiftMongoClientTests.swift",
     "SwiftObjectServerPartitionTests.swift",
     "SwiftObjectServerTests.swift",
+    "SwiftServerObjects.swift",
     "SwiftSyncTestCase.swift",
+    "SwiftUIServerTests.swift",
     "TimeoutProxyServer.swift",
     "WatchTestUtility.swift",
     "certificates",
@@ -150,6 +156,7 @@ let package = Package(
                 "RealmSwift.podspec",
                 "SUPPORT.md",
                 "build.sh",
+                "ci_scripts/ci_post_clone.sh",
                 "contrib",
                 "dependencies.list",
                 "docs",
@@ -158,7 +165,6 @@ let package = Package(
                 "logo.png",
                 "plugin",
                 "scripts",
-                "tools",
             ],
             sources: [
                 "Realm/RLMAccessor.mm",
@@ -217,6 +223,7 @@ let package = Package(
                 "Realm/RLMSyncConfiguration.mm",
                 "Realm/RLMSyncManager.mm",
                 "Realm/RLMSyncSession.mm",
+                "Realm/RLMSyncSubscription.mm",
                 "Realm/RLMSyncUtil.mm",
                 "Realm/RLMUpdateResult.mm",
                 "Realm/RLMUser.mm",
@@ -276,7 +283,10 @@ let package = Package(
             name: "RealmSwiftTests",
             dependencies: ["RealmSwift", "RealmTestSupport"],
             path: "RealmSwift/Tests",
-            exclude: ["RealmSwiftTests-Info.plist"],
+            exclude: [
+                "RealmSwiftTests-Info.plist",
+                "QueryTests.swift.gyb"
+            ],
             swiftSettings: testSwiftSettings
         ),
 
@@ -287,7 +297,9 @@ let package = Package(
         objectServerTestSupportTarget(
             name: "RealmSyncTestSupport",
             dependencies: ["Realm", "RealmSwift", "RealmTestSupport"],
-            sources: ["RLMSyncTestCase.mm", "RLMUser+ObjectServerTests.mm"]
+            sources: ["RLMSyncTestCase.mm",
+                      "RLMUser+ObjectServerTests.mm",
+                      "RLMServerTestObjects.m"]
         ),
         objectServerTestSupportTarget(
             name: "RealmSwiftSyncTestSupport",
@@ -306,7 +318,9 @@ let package = Package(
                 "SwiftObjectServerTests.swift",
                 "SwiftCollectionSyncTests.swift",
                 "SwiftObjectServerPartitionTests.swift",
-                "SwiftUIServerTests.swift"
+                "SwiftUIServerTests.swift",
+                "SwiftMongoClientTests.swift",
+                "SwiftFlexibleSyncServerTests.swift"
             ]
         ),
         objectServerTestTarget(
@@ -316,7 +330,8 @@ let package = Package(
                 "RLMCollectionSyncTests.mm",
                 "RLMObjectServerPartitionTests.mm",
                 "RLMObjectServerTests.mm",
-                "RLMWatchTestUtility.m"
+                "RLMWatchTestUtility.m",
+                "RLMFlexibleSyncServerTests.mm"
             ]
         )
     ],

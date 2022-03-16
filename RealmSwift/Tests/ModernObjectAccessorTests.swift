@@ -145,8 +145,8 @@ class ModernObjectAccessorTests: TestCase {
         }
 
         testConversion("decimalCol", 1, 1 as Decimal128)
-        testConversion("decimalCol", 2.2 as Float, 2.2 as Decimal128)
-        testConversion("decimalCol", 3.3 as Double, 3.3 as Decimal128)
+        testConversion("decimalCol", 2.2 as Float, Decimal128(value: 2.2 as Float))
+        testConversion("decimalCol", 3.3 as Double, Decimal128(value: 3.3 as Double))
         testConversion("decimalCol", "4.4", 4.4 as Decimal128)
         testConversion("decimalCol", Decimal(5.5), 5.5 as Decimal128)
 
@@ -156,8 +156,8 @@ class ModernObjectAccessorTests: TestCase {
         testConversion("stringEnumCol", ModernStringEnum.value2, ModernStringEnum.value2.rawValue)
 
         testConversion("optDecimalCol", 1, 1 as Decimal128)
-        testConversion("optDecimalCol", 2.2 as Float, 2.2 as Decimal128)
-        testConversion("optDecimalCol", 3.3 as Double, 3.3 as Decimal128)
+        testConversion("optDecimalCol", 2.2 as Float, Decimal128(value: 2.2 as Float))
+        testConversion("optDecimalCol", 3.3 as Double, Decimal128(value: 3.3 as Double))
         testConversion("optDecimalCol", "4.4", 4.4 as Decimal128)
         testConversion("optDecimalCol", Decimal(5.5), 5.5 as Decimal128)
         testConversion("optDecimalCol", NSNull(), nil as Decimal128?)
@@ -291,8 +291,8 @@ class ModernObjectAccessorTests: TestCase {
         }
 
         testConversion("decimalCol", 1, 1 as Decimal128)
-        testConversion("decimalCol", 2.2 as Float, 2.2 as Decimal128)
-        testConversion("decimalCol", 3.3 as Double, 3.3 as Decimal128)
+        testConversion("decimalCol", 2.2 as Float, Decimal128(value: 2.2 as Float))
+        testConversion("decimalCol", 3.3 as Double, Decimal128(value: 3.3 as Double))
         testConversion("decimalCol", "4.4", 4.4 as Decimal128)
         testConversion("decimalCol", Decimal(5.5), 5.5 as Decimal128)
 
@@ -302,8 +302,8 @@ class ModernObjectAccessorTests: TestCase {
         testConversion("stringEnumCol", ModernStringEnum.value2, ModernStringEnum.value2.rawValue)
 
         testConversion("optDecimalCol", 1, 1 as Decimal128)
-        testConversion("optDecimalCol", 2.2 as Float, 2.2 as Decimal128)
-        testConversion("optDecimalCol", 3.3 as Double, 3.3 as Decimal128)
+        testConversion("optDecimalCol", 2.2 as Float, Decimal128(value: 2.2 as Float))
+        testConversion("optDecimalCol", 3.3 as Double, Decimal128(value: 3.3 as Double))
         testConversion("optDecimalCol", "4.4", 4.4 as Decimal128)
         testConversion("optDecimalCol", Decimal(5.5), 5.5 as Decimal128)
         testConversion("optDecimalCol", NSNull(), nil as Decimal128?)
@@ -601,6 +601,38 @@ class ModernObjectAccessorTests: TestCase {
              .decimal128(5), .uuid(uuid))
     }
 
+    func setAndTestFailableCustomMappings(_ obj: FailableCustomObject) {
+        obj["int"] = 2
+        XCTAssertEqual(obj["int"] as! Int, 2)
+        XCTAssertEqual(get(obj, "int") as! Int, 2)
+        XCTAssertEqual(obj.int.persistableValue, 2)
+
+        if obj.realm == nil {
+            // Unmanaged objects convert to the mapped type on set as the value
+            // is stored as the wrapped type
+            let reason = "Could not convert value '1' to type 'IntFailableWrapper'."
+            assertThrows(obj["int"] = 1, reason: reason)
+            assertThrows(set(obj, "int", 1), reason: reason)
+        } else {
+            // Managed objects convert on read
+            obj["int"] = 1
+            let reason = "Failed to convert persisted value '1' to type 'IntFailableWrapper' in a non-optional context."
+            assertThrows(obj["int"] as! Int, reason: reason)
+            assertThrows(get(obj, "int") as! Int, reason: reason)
+            assertThrows(obj.int, reason: reason)
+        }
+
+        obj["optInt"] = 2
+        XCTAssertEqual(obj["optInt"] as! Int, 2)
+        XCTAssertEqual(get(obj, "optInt") as! Int, 2)
+        XCTAssertEqual(obj.optInt!.persistableValue, 2)
+
+        obj["optInt"] = 1
+        XCTAssertNil(obj["optInt"])
+        XCTAssertTrue(get(obj, "optInt") is NSNull)
+        XCTAssertNil(obj.optInt)
+    }
+
     func testUnmanagedAccessors() {
         setAndTestAllPropertiesViaNormalAccess(ModernAllTypesObject())
         setAndTestAllPropertiesViaSubscript(ModernAllTypesObject())
@@ -608,6 +640,7 @@ class ModernObjectAccessorTests: TestCase {
         setAndTestList(ModernAllTypesObject())
         setAndTestSet(ModernAllTypesObject())
         setAndTestMap(ModernAllTypesObject())
+        setAndTestFailableCustomMappings(FailableCustomObject())
     }
 
     func testManagedAccessorsReadFromRealm() {
@@ -620,6 +653,7 @@ class ModernObjectAccessorTests: TestCase {
         setAndTestList(object)
         setAndTestSet(object)
         setAndTestMap(object)
+        setAndTestFailableCustomMappings(realm.create(FailableCustomObject.self))
         realm.cancelWrite()
     }
 
@@ -682,5 +716,26 @@ class ModernObjectAccessorTests: TestCase {
         XCTAssertEqual(obj.copyValue, "c")
         XCTAssertEqual(obj.mutableCopyValue, "d")
         XCTAssertEqual(obj.newValue, "e")
+    }
+
+    func testReadInvalidEnumValue() {
+        let realm = try! Realm()
+        realm.beginWrite()
+
+        let obj = realm.create(ModernAllTypesObject.self)
+        obj["optIntEnumCol"] = 10
+        XCTAssertNil(obj.optIntEnumCol)
+        obj["optStringEnumCol"] = "10"
+        XCTAssertNil(obj.optStringEnumCol)
+
+        let collectionsObj = realm.create(ModernCollectionsOfEnums.self)
+        (collectionsObj.listIntOpt._rlmCollection as! RLMArray<AnyObject>).add(NSNumber(value: 10))
+        XCTAssertNil(collectionsObj.listIntOpt[0])
+        (collectionsObj.setStringOpt._rlmCollection as! RLMSet<AnyObject>).add("abc" as AnyObject)
+        XCTAssertNil(collectionsObj.setStringOpt[0])
+        (collectionsObj.mapStringOpt._rlmCollection as! RLMDictionary<NSString, AnyObject>).setObject("abc" as AnyObject, forKey: "key")
+        XCTAssertEqual(collectionsObj.mapStringOpt["key"], EnumString??.some(nil))
+
+        realm.cancelWrite()
     }
 }

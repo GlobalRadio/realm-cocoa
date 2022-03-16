@@ -941,7 +941,7 @@ class RealmTests: TestCase {
         } catch Realm.Error.fileAccess {
             // Success to catch the error
         } catch {
-            XCTFail("Failed to brigde RLMError to Realm.Error")
+            XCTFail("Failed to bridge RLMError to Realm.Error")
         }
         do {
             _ = try Realm(configuration: Realm.Configuration(fileURL: defaultRealmURL(), readOnly: true))
@@ -949,7 +949,7 @@ class RealmTests: TestCase {
         } catch Realm.Error.fileNotFound {
             // Success to catch the error
         } catch {
-            XCTFail("Failed to brigde RLMError to Realm.Error")
+            XCTFail("Failed to bridge RLMError to Realm.Error")
         }
     }
 
@@ -978,5 +978,66 @@ class RealmTests: TestCase {
         XCTAssertEqual(try! Realm().objects(SwiftBoolObject.self).count, 0)
         realm.refresh()
         XCTAssertEqual(try! Realm().objects(SwiftBoolObject.self).count, 1)
+    }
+
+    func testWriteCopyForConfiguration() {
+        do {
+            var localConfig = Realm.Configuration()
+            localConfig.fileURL = defaultRealmURL().deletingLastPathComponent().appendingPathComponent("original.realm")
+
+            let realm = try Realm(configuration: localConfig)
+            try! realm.write {
+                realm.add(SwiftBoolObject())
+            }
+
+            XCTAssertEqual(realm.objects(SwiftBoolObject.self).count, 1)
+
+            var destinationConfig = Realm.Configuration()
+            destinationConfig.fileURL = defaultRealmURL().deletingLastPathComponent().appendingPathComponent("destination.realm")
+
+            try realm.writeCopy(configuration: destinationConfig)
+
+            let destinationRealm = try Realm(configuration: destinationConfig)
+            XCTAssertEqual(destinationRealm.objects(SwiftBoolObject.self).count, 1)
+
+            try! destinationRealm.write {
+                destinationRealm.add(SwiftBoolObject())
+            }
+
+            XCTAssertEqual(destinationRealm.objects(SwiftBoolObject.self).count, 2)
+        } catch {
+            print(error.localizedDescription)
+            XCTFail("Got an error: \(error)")
+        }
+    }
+
+    func testSeedFilePath() {
+        do {
+            var localConfig = Realm.Configuration()
+            localConfig.fileURL = defaultRealmURL().deletingLastPathComponent().appendingPathComponent("original.realm")
+
+            try autoreleasepool {
+                let realm = try Realm(configuration: localConfig)
+                try! realm.write {
+                    realm.add(SwiftBoolObject())
+                }
+                XCTAssertEqual(realm.objects(SwiftBoolObject.self).count, 1)
+            }
+
+            var destinationConfig = Realm.Configuration()
+            destinationConfig.fileURL = defaultRealmURL().deletingLastPathComponent().appendingPathComponent("destination.realm")
+            destinationConfig.seedFilePath = defaultRealmURL().deletingLastPathComponent().appendingPathComponent("original.realm")
+
+            let destinationRealm = try Realm(configuration: destinationConfig)
+            XCTAssertEqual(destinationRealm.objects(SwiftBoolObject.self).count, 1)
+
+            try! destinationRealm.write {
+                destinationRealm.add(SwiftBoolObject())
+            }
+
+            XCTAssertEqual(destinationRealm.objects(SwiftBoolObject.self).count, 2)
+        } catch {
+            XCTFail("Got an error: \(error)")
+        }
     }
 }

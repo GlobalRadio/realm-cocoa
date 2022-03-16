@@ -1,10 +1,10 @@
-xcodeVersions = ['12.2', '12.4', '12.5.1', '13.0']
+xcodeVersions = ['12.4', '12.5.1', '13.1', '13.2.1', '13.3']
 platforms = ['osx', 'ios', 'watchos', 'tvos', 'catalyst']
 carthagePlatforms = ['osx', 'ios', 'watchos', 'tvos']
 platformNames = ['osx': 'macOS', 'ios': 'iOS', 'watchos': 'watchOS', 'tvos': 'tvOS', 'catalyst': 'Catalyst']
-carthageXcodeVersion = '12.5.1'
-objcXcodeVersion = '12.2'
-docsSwiftVersion = '5.3.2'
+carthageXcodeVersion = '13.3'
+objcXcodeVersion = '12.4'
+docsSwiftVersion = '5.5.1'
 
 def installationTest(platform, test, language) {
   return {
@@ -125,6 +125,7 @@ def doBuild() {
           export REALM_XCODE_VERSION=${carthageXcodeVersion}
           . ./scripts/swift-version.sh
           set_xcode_and_swift_versions
+          export REALM_CARTHAGE_ARM_DISABLED='YES'
 
           # Carthage scans every xcodeproj in the directory looking for
           # targets. This can be very slow and even spuriously time out, so
@@ -186,7 +187,7 @@ def doBuild() {
           unstash 'source'
 
           sh "REALM_XCODE_VERSION=${objcXcodeVersion} ./build.sh package-release objc"
-          stash include: 'realm-objc-*.zip', name: 'objc-packaged'
+          stash includes: 'realm-objc-*.zip', name: 'objc-packaged'
           archiveArtifacts artifacts: 'realm-objc-*.zip'
         }
       },
@@ -204,7 +205,7 @@ def doBuild() {
           unstash 'source'
 
           sh './build.sh package-release swift'
-          stash include: 'realm-swift-*.zip', name: 'swift-packaged'
+          stash includes: 'realm-swift-*.zip', name: 'swift-packaged'
           archiveArtifacts artifacts: 'realm-swift-*.zip'
         }
       },
@@ -241,11 +242,11 @@ def doBuild() {
           def sha = params.sha
           sh """
           hostname
-          curl -O https://raw.githubusercontent.com/realm/realm-cocoa/${sha}/build.sh
+          curl -O https://raw.githubusercontent.com/realm/realm-swift/${sha}/build.sh
           mkdir -p scripts
-          curl https://raw.githubusercontent.com/realm/realm-cocoa/${sha}/scripts/swift-version.sh -o scripts/swift-version.sh
-          curl https://raw.githubusercontent.com/realm/realm-cocoa/${sha}/scripts/reset-simulators.sh -o scripts/reset-simulators.sh
-          curl https://raw.githubusercontent.com/realm/realm-cocoa/${sha}/scripts/reset-simulators.rb -o scripts/reset-simulators.rb
+          curl https://raw.githubusercontent.com/realm/realm-swift/${sha}/scripts/swift-version.sh -o scripts/swift-version.sh
+          curl https://raw.githubusercontent.com/realm/realm-swift/${sha}/scripts/reset-simulators.sh -o scripts/reset-simulators.sh
+          curl https://raw.githubusercontent.com/realm/realm-swift/${sha}/scripts/reset-simulators.rb -o scripts/reset-simulators.rb
           chmod +x scripts/reset-simulators.rb
 
           sh build.sh package-test-examples-objc
@@ -262,11 +263,11 @@ def doBuild() {
           def sha = params.sha
           sh """
           hostname
-          curl -O https://raw.githubusercontent.com/realm/realm-cocoa/${sha}/build.sh
+          curl -O https://raw.githubusercontent.com/realm/realm-swift/${sha}/build.sh
           mkdir -p scripts
-          curl https://raw.githubusercontent.com/realm/realm-cocoa/${sha}/scripts/swift-version.sh -o scripts/swift-version.sh
-          curl https://raw.githubusercontent.com/realm/realm-cocoa/${sha}/scripts/reset-simulators.sh -o scripts/reset-simulators.sh
-          curl https://raw.githubusercontent.com/realm/realm-cocoa/${sha}/scripts/reset-simulators.rb -o scripts/reset-simulators.rb
+          curl https://raw.githubusercontent.com/realm/realm-swift/${sha}/scripts/swift-version.sh -o scripts/swift-version.sh
+          curl https://raw.githubusercontent.com/realm/realm-swift/${sha}/scripts/reset-simulators.sh -o scripts/reset-simulators.sh
+          curl https://raw.githubusercontent.com/realm/realm-swift/${sha}/scripts/reset-simulators.rb -o scripts/reset-simulators.rb
           chmod +x scripts/reset-simulators.rb
 
           sh build.sh package-test-examples-swift

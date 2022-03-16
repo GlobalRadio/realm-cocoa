@@ -16,4 +16,5 @@
 //
 ////////////////////////////////////////////////////////////////////////////
 
-#import "RLMSyncTestCase.h"
+#import "RLMUser+ObjectServerTests.h"
+#import "RLMApp_Private.h"

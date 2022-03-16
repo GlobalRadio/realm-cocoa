@@ -27,7 +27,7 @@ import RealmSyncTestSupport
 #endif
 
 public extension User {
-    func configuration(testName: String) -> Realm.Configuration {
+    func configuration<T: BSON>(testName: T) -> Realm.Configuration {
         var config = self.configuration(partitionValue: testName)
         config.objectTypes = [SwiftPerson.self, SwiftHugeSyncObject.self, SwiftTypesSyncObject.self]
         return config
@@ -37,6 +37,21 @@ public extension User {
 public func randomString(_ length: Int) -> String {
     let letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     return String((0..<length).map { _ in letters.randomElement()! })
+}
+
+public typealias ChildProcessEnvironment = RLMChildProcessEnvironment
+
+public enum ProcessKind {
+    case parent
+    case child(environment: ChildProcessEnvironment)
+
+    public static var current: ProcessKind {
+        if getenv("RLMProcessIsChild") == nil {
+            return .parent
+        } else {
+            return .child(environment: ChildProcessEnvironment.current())
+        }
+    }
 }
 
 open class SwiftSyncTestCase: RLMSyncTestCase {
@@ -128,6 +143,7 @@ open class SwiftSyncTestCase: RLMSyncTestCase {
                                       _ type: T.Type,
                                       file: StaticString = #file,
                                       line: UInt = #line) {
+        realm.refresh()
         let actual = realm.objects(type).count
         XCTAssertEqual(actual, expected,
                        "Error: expected \(expected) items, but got \(actual) (process: \(isParent ? "parent" : "child"))",
@@ -166,10 +182,11 @@ open class SwiftSyncTestCase: RLMSyncTestCase {
     }
 
     public static let bigObjectCount = 2
-    public func populateRealm(user: User? = nil, partitionValue: String) {
+    public func populateRealm<T: BSON>(user: User? = nil, partitionValue: T) {
         do {
             let user = try (user ?? logInUser(for: basicCredentials()))
             let config = user.configuration(testName: partitionValue)
+
             let realm = try openRealm(configuration: config)
             try! realm.write {
                 for _ in 0..<SwiftSyncTestCase.bigObjectCount {
@@ -182,6 +199,75 @@ open class SwiftSyncTestCase: RLMSyncTestCase {
             XCTFail("Got an error: \(error) (process: \(isParent ? "parent" : "child"))")
         }
     }
+
+    // MARK: - Flexible Sync Use Cases
+
+    public func openFlexibleSyncRealmForUser(_ user: User) throws -> Realm {
+        var config = user.flexibleSyncConfiguration()
+        if config.objectTypes == nil {
+            config.objectTypes = [SwiftPerson.self,
+                                  SwiftTypesSyncObject.self]
+        }
+        let realm = try Realm(configuration: config)
+        waitForDownloads(for: realm)
+        return realm
+    }
+
+    public func openFlexibleSyncRealm() throws -> Realm {
+        let user = try logInUser(for: basicCredentials(app: self.flexibleSyncApp), app: self.flexibleSyncApp)
+        var config = user.flexibleSyncConfiguration()
+        if config.objectTypes == nil {
+            config.objectTypes = [SwiftPerson.self,
+                                  SwiftTypesSyncObject.self]
+        }
+        return try Realm(configuration: config)
+    }
+
+    public func flexibleSyncRealm() throws -> Realm {
+        let user = try logInUser(for: basicCredentials(app: self.flexibleSyncApp), app: self.flexibleSyncApp)
+        return try openFlexibleSyncRealmForUser(user)
+    }
+
+    public func populateFlexibleSyncData(_ block: @escaping (Realm) -> Void) throws {
+        try writeToFlxRealm { realm in
+            try realm.write {
+                block(realm)
+            }
+            self.waitForUploads(for: realm)
+        }
+    }
+
+    public func writeToFlxRealm(_ block: @escaping (Realm) throws -> Void) throws {
+        let realm = try flexibleSyncRealm()
+        let subscriptions = realm.subscriptions
+        XCTAssertNotNil(subscriptions)
+        let ex = expectation(description: "state change complete")
+        subscriptions.write({
+            subscriptions.append(QuerySubscription<SwiftPerson>(where: "TRUEPREDICATE"))
+            subscriptions.append(QuerySubscription<SwiftTypesSyncObject>(where: "TRUEPREDICATE"))
+        }, onComplete: { error in
+            XCTAssertNil(error)
+            ex.fulfill()
+        })
+        XCTAssertEqual(subscriptions.count, 2)
+
+        waitForExpectations(timeout: 20.0, handler: nil)
+        try block(realm)
+    }
 }
 
+#if swift(>=5.5.2) && canImport(_Concurrency)
+
+@available(macOS 12.0, *)
+extension SwiftSyncTestCase {
+    public func basicCredentials(usernameSuffix: String = "", app: App? = nil) async throws -> Credentials {
+        let email = "\(randomString(10))\(usernameSuffix)"
+        let password = "abcdef"
+        let credentials = Credentials.emailPassword(email: email, password: password)
+        try await (app ?? self.app).emailPasswordAuth.registerUser(email: email, password: password)
+        return credentials
+    }
+}
+
+#endif // swift(>=5.5)
 #endif // os(macOS)

@@ -15,9 +15,6 @@ set -e
 
 readonly source_root="$(dirname "$0")"
 
-# You can override the version of the core library
-: "${REALM_BASE_URL:="https://static.realm.io/downloads"}" # set it if you need to use a remote repo
-
 : "${REALM_CORE_VERSION:=$(sed -n 's/^REALM_CORE_VERSION=\(.*\)$/\1/p' "${source_root}/dependencies.list")}" # set to "current" to always use the current build
 
 # You can override the xcmode used
@@ -258,8 +255,8 @@ build_docs() {
       --clean \
       --author Realm \
       --author_url https://realm.io \
-      --github_url https://github.com/realm/realm-cocoa \
-      --github-file-prefix "https://github.com/realm/realm-cocoa/tree/v${version}" \
+      --github_url https://github.com/realm/realm-swift \
+      --github-file-prefix "https://github.com/realm/realm-swift/tree/v${version}" \
       --module-version "${version}" \
       --xcodebuild-arguments "${xcodebuild_arguments}" \
       --module "${module}" \
@@ -279,93 +276,6 @@ if [ "$#" -eq 0 ] || [ "$#" -gt 3 ]; then
     usage
     exit 1
 fi
-
-######################################
-# Downloading
-######################################
-
-copy_core() {
-    local src="$1"
-    rm -rf core
-    mkdir core
-    ditto "$src" core
-
-    # XCFramework processing only copies the "realm" headers, so put the third-party ones in a known location
-    mkdir -p core/include
-    find "$src" -name external -exec ditto "{}" core/include/external \; -quit
-}
-
-download_common() {
-    local tries_left=3 version url error suffix
-    suffix='-xcframework'
-
-    version=$REALM_CORE_VERSION
-    url="${REALM_BASE_URL}/core/realm-monorepo-xcframework-v${version}.tar.xz"
-
-    # First check if we need to do anything
-    if [ -e core ]; then
-        if [ -e core/version.txt ]; then
-            if [ "$(cat core/version.txt)" == "$version" ]; then
-                echo "Version ${version} already present"
-                exit 0
-            else
-                echo "Switching from version $(cat core/version.txt) to ${version}"
-            fi
-        else
-            if [ "$(find core -name librealm-monorepo.a)" ]; then
-                echo 'Using existing custom core build without checking version'
-                exit 0
-            fi
-        fi
-    fi
-
-    # We may already have this version downloaded and just need to set it as
-    # the active one
-    local versioned_dir="realm-core-${version}${suffix}"
-    if [ -e "$versioned_dir/version.txt" ]; then
-        echo "Setting ${version} as the active version"
-        copy_core "$versioned_dir"
-        exit 0
-    fi
-
-    echo "Downloading dependency: ${version} from ${url}"
-
-    if [ -z "$TMPDIR" ]; then
-        TMPDIR='/tmp'
-    fi
-    local temp_dir=$(dirname "$TMPDIR/waste")/realm-core-tmp
-    mkdir -p "$temp_dir"
-    local tar_path="${temp_dir}/${versioned_dir}.tar.xz"
-    local temp_path="${tar_path}.tmp"
-
-    while [ 0 -lt $tries_left ] && [ ! -f "$tar_path" ]; do
-        if ! error=$(/usr/bin/curl --fail --silent --show-error --location "$url" --output "$temp_path" 2>&1); then
-            tries_left=$((tries_left-1))
-        else
-            mv "$temp_path" "$tar_path"
-        fi
-    done
-
-    if [ ! -f "$tar_path" ]; then
-        printf "Downloading core failed:\n\t%s\n\t%s\n" "$url" "$error"
-        exit 1
-    fi
-
-    (
-        cd "$temp_dir"
-        rm -rf core
-        tar xf "$tar_path" --xz
-        if [ ! -f core/version.txt ]; then
-            printf %s "${version}" > core/version.txt
-        fi
-
-        mv core "${versioned_dir}"
-    )
-
-    rm -rf "${versioned_dir}"
-    mv "${temp_dir}/${versioned_dir}" .
-    copy_core "$versioned_dir"
-}
 
 ######################################
 # Variables
@@ -406,7 +316,7 @@ case "$COMMAND" in
     # Dependencies
     ######################################
     "download-core")
-        download_common
+        sh scripts/download-core.sh
         exit 0
         ;;
 
@@ -644,12 +554,13 @@ case "$COMMAND" in
 
     test-swiftpm*)
         SANITIZER=$(echo "$COMMAND" | cut -d - -f 3)
+        SWIFT_TEST_FLAGS=(-Xcc -g0)
         if [ -n "$SANITIZER" ]; then
-            SANITIZER="--sanitize $SANITIZER"
+            SWIFT_TEST_FLAGS+=(--sanitize "$SANITIZER")
             export ASAN_OPTIONS='check_initialization_order=true:detect_stack_use_after_return=true'
         fi
         xcrun swift package resolve
-        xcrun swift test -Xcc -g0 --configuration "$(echo "$CONFIGURATION" | tr "[:upper:]" "[:lower:]")" $SANITIZER
+        xcrun swift test --configuration "$(echo "$CONFIGURATION" | tr "[:upper:]" "[:lower:]")" "${SWIFT_TEST_FLAGS[@]}"
         exit 0
         ;;
 
@@ -1063,23 +974,6 @@ case "$COMMAND" in
         ;;
 
     ######################################
-    # CocoaPods
-    ######################################
-    "cocoapods-setup")
-        if [ ! -f core/version.txt ]; then
-          sh build.sh download-core
-        fi
-
-        rm -rf include
-        mkdir -p include
-        cp -R core/realm-monorepo.xcframework/ios-armv7_arm64/Headers include/core
-
-        mkdir -p include
-        echo '' > Realm/RLMPlatform.h
-        cp Realm/*.h Realm/*.hpp include
-        ;;
-
-    ######################################
     # Continuous Integration
     ######################################
 
@@ -1302,8 +1196,8 @@ EOF
         WORKSPACE="$(cd "$WORKSPACE" && pwd)"
         export WORKSPACE
         cd "$WORKSPACE"
-        git clone --recursive "$REALM_SOURCE" realm-cocoa
-        cd realm-cocoa
+        git clone --recursive "$REALM_SOURCE" realm-swift
+        cd realm-swift
 
         echo 'Packaging iOS'
         sh build.sh package-ios-static
@@ -1331,7 +1225,7 @@ EOF
         sh build.sh package-examples
 
         echo 'Building final release packages'
-        export WORKSPACE="${WORKSPACE}/realm-cocoa"
+        export WORKSPACE="${WORKSPACE}/realm-swift"
         sh build.sh package-release objc
         sh build.sh package-release swift
 
@@ -1356,7 +1250,7 @@ x.y.z Release notes (yyyy-MM-dd)
 * None.
 
 ### Fixed
-* <How to hit and notice issue? what was the impact?> ([#????](https://github.com/realm/realm-cocoa/issues/????), since v?.?.?)
+* <How to hit and notice issue? what was the impact?> ([#????](https://github.com/realm/realm-swift/issues/????), since v?.?.?)
 * None.
 
 <!-- ### Breaking Changes - ONLY INCLUDE FOR NEW MAJOR version -->
@@ -1364,9 +1258,9 @@ x.y.z Release notes (yyyy-MM-dd)
 ### Compatibility
 * Realm Studio: 11.0.0 or later.
 * APIs are backwards compatible with all previous releases in the 10.x.y series.
-* Carthage release for Swift is built with Xcode 12.5.1.
+* Carthage release for Swift is built with Xcode 13.3.
 * CocoaPods: 1.10 or later.
-* Xcode: 12.2-13.0 beta 5.
+* Xcode: 12.4-13.3.
 
 ### Internal
 * Upgraded realm-core from ? to ?

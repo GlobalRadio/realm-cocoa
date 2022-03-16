@@ -84,11 +84,6 @@ static NSString *generateRandomString(int num) {
     return string;
 }
 
-- (RLMUser *)userForTest:(SEL)sel {
-    return [self logInUserForCredentials:[self basicCredentialsWithName:NSStringFromSelector(sel)
-                                                               register:self.isParent]];
-}
-
 #pragma mark - Authentication and Tokens
 
 - (void)testAnonymousAuthentication {
@@ -97,6 +92,13 @@ static NSString *generateRandomString(int num) {
     XCTAssert([currentUser.identifier isEqualToString:syncUser.identifier]);
     XCTAssert([currentUser.refreshToken isEqualToString:syncUser.refreshToken]);
     XCTAssert([currentUser.accessToken isEqualToString:syncUser.accessToken]);
+}
+
+- (void)testCustomTokenAuthentication {
+    RLMUser *user = [self logInUserForCredentials:[self jwtCredentialWithAppId:self.appId]];
+    XCTAssertTrue([user.profile.metadata[@"anotherName"] isEqualToString:@"Bar Foo"]);
+    XCTAssertTrue([user.profile.metadata[@"name"] isEqualToString:@"Foo Bar"]);
+    XCTAssertTrue([user.profile.metadata[@"occupation"] isEqualToString:@"firefighter"]);
 }
 
 - (void)testCallFunction {
@@ -170,6 +172,27 @@ static NSString *generateRandomString(int num) {
         XCTAssert(self.app.allUsers.count == 1);
         XCTAssert([self.app.currentUser.identifier isEqualToString:firstUser.identifier]);
         [removeUserExpectation fulfill];
+    }];
+
+    [self waitForExpectationsWithTimeout:60.0 handler:nil];
+}
+
+- (void)testDeleteUser {
+    [self logInUserForCredentials:[self basicCredentialsWithName:NSStringFromSelector(_cmd)
+                                                        register:YES]];
+    RLMUser *secondUser = [self logInUserForCredentials:[self basicCredentialsWithName:@"test2@10gen.com"
+                                                                              register:YES]];
+
+    XCTAssert([self.app.currentUser.identifier isEqualToString:secondUser.identifier]);
+
+    XCTestExpectation *deleteUserExpectation = [self expectationWithDescription:@"should delete user"];
+
+    [secondUser deleteWithCompletion:^(NSError *error) {
+        XCTAssert(!error);
+        XCTAssert(self.app.allUsers.count == 1);
+        XCTAssertNil(self.app.currentUser);
+        XCTAssertEqual(secondUser.state, RLMUserStateRemoved);
+        [deleteUserExpectation fulfill];
     }];
 
     [self waitForExpectationsWithTimeout:60.0 handler:nil];
@@ -556,127 +579,110 @@ static NSString *randomEmail() {
     [self waitForExpectationsWithTimeout:10.0 handler:nil];
 }
 
+#pragma mark - User Profile
+
+- (void)testUserProfileInitialization {
+    RLMUserProfile *profile = [[RLMUserProfile alloc] initWithUserProfile:realm::SyncUserProfile()];
+    XCTAssertNil(profile.name);
+    XCTAssertNil(profile.maxAge);
+    XCTAssertNil(profile.minAge);
+    XCTAssertNil(profile.birthday);
+    XCTAssertNil(profile.gender);
+    XCTAssertNil(profile.firstName);
+    XCTAssertNil(profile.lastName);
+    XCTAssertNil(profile.pictureURL);
+
+    auto metadata = realm::bson::BsonDocument({{"some_key", "some_value"}});
+
+    profile = [[RLMUserProfile alloc] initWithUserProfile:realm::SyncUserProfile(realm::bson::BsonDocument({
+        {"name", "Jane"},
+        {"max_age", "40"},
+        {"min_age", "30"},
+        {"birthday", "October 10th"},
+        {"gender", "unknown"},
+        {"first_name", "Jane"},
+        {"last_name", "Jannson"},
+        {"picture_url", "SomeURL"},
+        {"other_data", metadata}
+    }))];
+
+    XCTAssert([profile.name isEqualToString:@"Jane"]);
+    XCTAssert([profile.maxAge isEqualToString:@"40"]);
+    XCTAssert([profile.minAge isEqualToString:@"30"]);
+    XCTAssert([profile.birthday isEqualToString:@"October 10th"]);
+    XCTAssert([profile.gender isEqualToString:@"unknown"]);
+    XCTAssert([profile.firstName isEqualToString:@"Jane"]);
+    XCTAssert([profile.lastName isEqualToString:@"Jannson"]);
+    XCTAssert([profile.pictureURL isEqualToString:@"SomeURL"]);
+    XCTAssertEqualObjects(profile.metadata[@"other_data"], @{@"some_key": @"some_value"});
+}
+
 #pragma mark - Basic Sync
 
 /// It should be possible to successfully open a Realm configured for sync with a normal user.
 - (void)testOpenRealmWithNormalCredentials {
-    RLMUser *user = [self userForTest:_cmd];
-    RLMRealm *realm = [self openRealmForPartitionValue:NSStringFromSelector(_cmd) user:user];
-    XCTAssertTrue(realm.isEmpty);
-}
-
-- (void)testOpenRealmWithNilPartitionValue {
-    RLMUser *user = [self userForTest:_cmd];
-    RLMRealm *realm = [self openRealmForPartitionValue:nil user:user];
+    RLMRealm *realm = [self realmForTest:_cmd];
     XCTAssertTrue(realm.isEmpty);
 }
 
 /// If client B adds objects to a synced Realm, client A should see those objects.
 - (void)testAddObjects {
-    RLMUser *user = [self userForTest:_cmd];
-    NSString *realmId = NSStringFromSelector(_cmd);
-    RLMRealm *realm = [self openRealmForPartitionValue:realmId user:user];
+    RLMRealm *realm = [self realmForTest:_cmd];
     NSDictionary *values = [AllTypesSyncObject values:1];
+    CHECK_COUNT(0, Person, realm);
+    CHECK_COUNT(0, AllTypesSyncObject, realm);
 
-    if (self.isParent) {
-        CHECK_COUNT(0, Person, realm);
-        CHECK_COUNT(0, AllTypesSyncObject, realm)
-        RLMRunChildAndWait();
-        [self waitForDownloadsForRealm:realm];
-        CHECK_COUNT(4, Person, realm);
-        CHECK_COUNT(1, AllTypesSyncObject, realm);
+    [self writeToPartition:_cmd block:^(RLMRealm *realm) {
+        [realm addObjects:@[[Person john], [Person paul], [Person george]]];
+        AllTypesSyncObject *obj = [[AllTypesSyncObject alloc] initWithValue:values];
+        obj.objectCol = [Person ringo];
+        [realm addObject:obj];
+    }];
+    [self waitForDownloadsForRealm:realm];
+    CHECK_COUNT(4, Person, realm);
+    CHECK_COUNT(1, AllTypesSyncObject, realm);
 
-        AllTypesSyncObject *obj = [[AllTypesSyncObject allObjectsInRealm:realm] firstObject];
-        XCTAssertEqual(obj.boolCol, [values[@"boolCol"] boolValue]);
-        XCTAssertEqual(obj.cBoolCol, [values[@"cBoolCol"] boolValue]);
-        XCTAssertEqual(obj.intCol, [values[@"intCol"] intValue]);
-        XCTAssertEqual(obj.doubleCol, [values[@"doubleCol"] doubleValue]);
-        XCTAssertEqualObjects(obj.stringCol, values[@"stringCol"]);
-        XCTAssertEqualObjects(obj.binaryCol, values[@"binaryCol"]);
-        XCTAssertEqualObjects(obj.decimalCol, values[@"decimalCol"]);
-        XCTAssertEqual(obj.dateCol, values[@"dateCol"]);
-        XCTAssertEqual(obj.longCol, [values[@"longCol"] longValue]);
-        XCTAssertEqualObjects(obj.uuidCol, values[@"uuidCol"]);
-        XCTAssertEqualObjects((NSNumber *)obj.anyCol, values[@"anyCol"]);
-        XCTAssertEqualObjects(obj.objectCol.firstName, [Person ringo].firstName);
-
-    } else {
-        // Add objects.
-        [self addPersonsToRealm:realm
-                        persons:@[[Person john],
-                                  [Person paul],
-                                  [Person george]]];
-
-        [self addAllTypesSyncObjectToRealm:realm
-                                    values:values
-                                    person:[Person ringo]];
-
-        [self waitForUploadsForRealm:realm];
-        CHECK_COUNT(4, Person, realm);
-        CHECK_COUNT(1, AllTypesSyncObject, realm)
-    }
+    AllTypesSyncObject *obj = [[AllTypesSyncObject allObjectsInRealm:realm] firstObject];
+    XCTAssertEqual(obj.boolCol, [values[@"boolCol"] boolValue]);
+    XCTAssertEqual(obj.cBoolCol, [values[@"cBoolCol"] boolValue]);
+    XCTAssertEqual(obj.intCol, [values[@"intCol"] intValue]);
+    XCTAssertEqual(obj.doubleCol, [values[@"doubleCol"] doubleValue]);
+    XCTAssertEqualObjects(obj.stringCol, values[@"stringCol"]);
+    XCTAssertEqualObjects(obj.binaryCol, values[@"binaryCol"]);
+    XCTAssertEqualObjects(obj.decimalCol, values[@"decimalCol"]);
+    XCTAssertEqual(obj.dateCol, values[@"dateCol"]);
+    XCTAssertEqual(obj.longCol, [values[@"longCol"] longValue]);
+    XCTAssertEqualObjects(obj.uuidCol, values[@"uuidCol"]);
+    XCTAssertEqualObjects((NSNumber *)obj.anyCol, values[@"anyCol"]);
+    XCTAssertEqualObjects(obj.objectCol.firstName, [Person ringo].firstName);
 }
 
 - (void)testAddObjectsWithNilPartitionValue {
     RLMRealm *realm = [self openRealmForPartitionValue:nil user:self.anonymousUser];
 
-    if (self.isParent) {
-        CHECK_COUNT(0, Person, realm);
-        RLMRunChildAndWait();
-        [self waitForDownloadsForRealm:realm];
-        CHECK_COUNT(4, Person, realm);
+    // This test needs the database to be empty of any documents with a nil partition
+    [realm transactionWithBlock:^{
+        [realm deleteAllObjects];
+    }];
+    [self waitForUploadsForRealm:realm];
 
-        // Other tests expect the nil partition to be empty so we need to clean up
-        [realm transactionWithBlock:^{
-            [realm deleteAllObjects];
-        }];
-        [self waitForUploadsForRealm:realm];
-    } else {
-        // Add objects.
-        [self addPersonsToRealm:realm
-                        persons:@[[Person john],
-                                  [Person paul],
-                                  [Person ringo],
-                                  [Person george]]];
-        [self waitForUploadsForRealm:realm];
-        CHECK_COUNT(4, Person, realm);
-    }
+    CHECK_COUNT(0, Person, realm);
+    [self writeToPartition:nil userName:NSStringFromSelector(_cmd) block:^(RLMRealm *realm) {
+        [realm addObjects:@[[Person john], [Person paul], [Person george], [Person ringo]]];
+    }];
+    [self waitForDownloadsForRealm:realm];
+    CHECK_COUNT(4, Person, realm);
 }
 
 - (void)testRountripForDistinctPrimaryKey {
-    RLMUser *user = [self userForTest:_cmd];
-    NSString *realmId = NSStringFromSelector(_cmd);
-    RLMRealm *realm = [self openRealmForPartitionValue:realmId user:user];
-    if (self.isParent) {
-        CHECK_COUNT(0, Person, realm);
-        CHECK_COUNT(0, UUIDPrimaryKeyObject, realm);
-        CHECK_COUNT(0, StringPrimaryKeyObject, realm);
-        CHECK_COUNT(0, IntPrimaryKeyObject, realm);
+    RLMRealm *realm = [self realmForTest:_cmd];
 
-        RLMRunChildAndWait();
-        [self waitForDownloadsForRealm:realm];
-        CHECK_COUNT(1, Person, realm);
-        CHECK_COUNT(1, UUIDPrimaryKeyObject, realm);
-        CHECK_COUNT(1, StringPrimaryKeyObject, realm);
-        CHECK_COUNT(1, IntPrimaryKeyObject, realm);
+    CHECK_COUNT(0, Person, realm);
+    CHECK_COUNT(0, UUIDPrimaryKeyObject, realm);
+    CHECK_COUNT(0, StringPrimaryKeyObject, realm);
+    CHECK_COUNT(0, IntPrimaryKeyObject, realm);
 
-        Person *person = [Person objectInRealm:realm forPrimaryKey:[[RLMObjectId alloc] initWithString:@"1234567890ab1234567890ab" error:nil]];
-        XCTAssertEqualObjects(person.firstName, @"Ringo");
-        XCTAssertEqualObjects(person.lastName, @"Starr");
-
-        UUIDPrimaryKeyObject *uuidPrimaryKeyObject = [UUIDPrimaryKeyObject objectInRealm:realm forPrimaryKey:[[NSUUID alloc] initWithUUIDString:@"85d4fbee-6ec6-47df-bfa1-615931903d7e"]];
-        XCTAssertEqualObjects(uuidPrimaryKeyObject.strCol, @"Steve");
-        XCTAssertEqual(uuidPrimaryKeyObject.intCol, 10);
-
-        StringPrimaryKeyObject *stringPrimaryKeyObject = [StringPrimaryKeyObject objectInRealm:realm forPrimaryKey:@"1234567890ab1234567890aa"];
-        XCTAssertEqualObjects(stringPrimaryKeyObject.strCol, @"Paul");
-        XCTAssertEqual(stringPrimaryKeyObject.intCol, 20);
-
-        IntPrimaryKeyObject *intPrimaryKeyObject = [IntPrimaryKeyObject objectInRealm:realm forPrimaryKey:@1234567890];
-        XCTAssertEqualObjects(intPrimaryKeyObject.strCol, @"Jackson");
-        XCTAssertEqual(intPrimaryKeyObject.intCol, 30);
-
-    } else {
+    [self writeToPartition:_cmd block:^(RLMRealm *realm) {
         Person *person = [[Person alloc] initWithPrimaryKey:[[RLMObjectId alloc] initWithString:@"1234567890ab1234567890ab" error:nil]
                                                         age:5
                                                   firstName:@"Ringo"
@@ -691,21 +697,33 @@ static NSString *randomEmail() {
                                                                                             strCol:@"Jackson"
                                                                                             intCol:30];
 
-        [realm beginWriteTransaction];
         [realm addObject:person];
         [realm addObject:uuidPrimaryKeyObject];
         [realm addObject:stringPrimaryKeyObject];
         [realm addObject:intPrimaryKeyObject];
-        [realm commitWriteTransaction];
-        [self waitForUploadsForRealm:realm];
-        CHECK_COUNT(1, Person, realm);
-        CHECK_COUNT(1, UUIDPrimaryKeyObject, realm);
-        CHECK_COUNT(1, StringPrimaryKeyObject, realm);
-        CHECK_COUNT(1, IntPrimaryKeyObject, realm);
-    }
+    }];
+    [self waitForDownloadsForRealm:realm];
+    CHECK_COUNT(1, Person, realm);
+    CHECK_COUNT(1, UUIDPrimaryKeyObject, realm);
+    CHECK_COUNT(1, StringPrimaryKeyObject, realm);
+    CHECK_COUNT(1, IntPrimaryKeyObject, realm);
+
+    Person *person = [Person objectInRealm:realm forPrimaryKey:[[RLMObjectId alloc] initWithString:@"1234567890ab1234567890ab" error:nil]];
+    XCTAssertEqualObjects(person.firstName, @"Ringo");
+    XCTAssertEqualObjects(person.lastName, @"Starr");
+
+    UUIDPrimaryKeyObject *uuidPrimaryKeyObject = [UUIDPrimaryKeyObject objectInRealm:realm forPrimaryKey:[[NSUUID alloc] initWithUUIDString:@"85d4fbee-6ec6-47df-bfa1-615931903d7e"]];
+    XCTAssertEqualObjects(uuidPrimaryKeyObject.strCol, @"Steve");
+    XCTAssertEqual(uuidPrimaryKeyObject.intCol, 10);
+
+    StringPrimaryKeyObject *stringPrimaryKeyObject = [StringPrimaryKeyObject objectInRealm:realm forPrimaryKey:@"1234567890ab1234567890aa"];
+    XCTAssertEqualObjects(stringPrimaryKeyObject.strCol, @"Paul");
+    XCTAssertEqual(stringPrimaryKeyObject.intCol, 20);
+
+    IntPrimaryKeyObject *intPrimaryKeyObject = [IntPrimaryKeyObject objectInRealm:realm forPrimaryKey:@1234567890];
+    XCTAssertEqualObjects(intPrimaryKeyObject.strCol, @"Jackson");
+    XCTAssertEqual(intPrimaryKeyObject.intCol, 30);
 }
-
-
 
 /// If client B adds objects to a synced Realm, client A should see those objects.
 - (void)testAddObjectsMultipleApps {
@@ -818,15 +836,41 @@ static NSString *randomEmail() {
     }
 }
 
+- (void)testIncomingSyncWritesTriggerNotifications {
+    NSString *baseName = NSStringFromSelector(_cmd);
+    auto user = [&] {
+        NSString *name = [baseName stringByAppendingString:[NSUUID UUID].UUIDString];
+        return [self logInUserForCredentials:[self basicCredentialsWithName:name register:YES]];
+    };
+    RLMRealm *syncRealm = [self openRealmWithConfiguration:[user() configurationWithTestSelector:_cmd]];
+    RLMRealm *asyncRealm = [self asyncOpenRealmWithConfiguration:[user() configurationWithTestSelector:_cmd]];
+    RLMRealm *writeRealm = [self asyncOpenRealmWithConfiguration:[user() configurationWithTestSelector:_cmd]];
+
+    __block XCTestExpectation *ex = [self expectationWithDescription:@"got initial notification"];
+    ex.expectedFulfillmentCount = 2;
+    id token1 = [[Person allObjectsInRealm:syncRealm] addNotificationBlock:^(RLMResults *, RLMCollectionChange *, NSError *) {
+        [ex fulfill];
+    }];
+    id token2 = [[Person allObjectsInRealm:asyncRealm] addNotificationBlock:^(RLMResults *, RLMCollectionChange *, NSError *) {
+        [ex fulfill];
+    }];
+    [self waitForExpectations:@[ex] timeout:5.0];
+
+    ex = [self expectationWithDescription:@"got update notification"];
+    ex.expectedFulfillmentCount = 2;
+    [self addPersonsToRealm:writeRealm persons:@[[Person john]]];
+    [self waitForExpectations:@[ex] timeout:5.0];
+
+    [token1 invalidate];
+    [token2 invalidate];
+}
+
 #pragma mark - RLMValue Sync with missing schema -
 
 - (void)testMissingSchema {
-    RLMUser *user = [self userForTest:_cmd];
-    auto c = [user configurationWithPartitionValue:NSStringFromSelector(_cmd)];
-    if (!self.isParent) {
-        c.objectClasses = @[Person.self,
-                            AllTypesSyncObject.self,
-                            RLMSetSyncObject.self];
+    @autoreleasepool {
+        auto c = [self.anonymousUser configurationWithPartitionValue:NSStringFromSelector(_cmd)];
+        c.objectClasses = @[Person.self, AllTypesSyncObject.self, RLMSetSyncObject.self];
         RLMRealm *realm = [RLMRealm realmWithConfiguration:c error:nil];
         [self waitForDownloadsForRealm:realm];
         AllTypesSyncObject *obj = [[AllTypesSyncObject alloc] initWithValue:[AllTypesSyncObject values:0]];
@@ -840,10 +884,10 @@ static NSString *randomEmail() {
         [realm commitWriteTransaction];
         [self waitForUploadsForRealm:realm];
         CHECK_COUNT(1, AllTypesSyncObject, realm);
-        return;
     }
-    RLMRunChildAndWait();
 
+    RLMUser *user = [self userForTest:_cmd];
+    auto c = [user configurationWithPartitionValue:NSStringFromSelector(_cmd)];
     c.objectClasses = @[Person.self, AllTypesSyncObject.self];
     RLMRealm *realm = [RLMRealm realmWithConfiguration:c error:nil];
     [self waitForDownloadsForRealm:realm];
@@ -890,42 +934,27 @@ static NSString *randomEmail() {
 - (void)testEncryptedSyncedRealmWrongKey {
     RLMUser *user = [self userForTest:_cmd];
 
-    if (self.isParent) {
-        NSString *path;
-        @autoreleasepool {
-            RLMRealm *realm = [self openRealmForPartitionValue:NSStringFromSelector(_cmd)
-                                                          user:user
-                                                 encryptionKey:RLMGenerateKey()
-                                                    stopPolicy:RLMSyncStopPolicyImmediately];
-            path = realm.configuration.pathOnDisk;
-            CHECK_COUNT(0, Person, realm);
-            RLMRunChildAndWait();
-            [self waitForDownloadsForUser:user
-                                   realms:@[realm]
-                          partitionValues:@[NSStringFromSelector(_cmd)]
-                           expectedCounts:@[@1]];
-        }
-
-        RLMRealmConfiguration *c = [RLMRealmConfiguration defaultConfiguration];
-        c.fileURL = [NSURL fileURLWithPath:path];
-        RLMAssertThrowsWithError([RLMRealm realmWithConfiguration:c error:nil],
-                                 @"Unable to open a realm at path",
-                                 RLMErrorFileAccess,
-                                 @"Realm file initial open failed");
-        c.encryptionKey = RLMGenerateKey();
-        RLMAssertThrowsWithError([RLMRealm realmWithConfiguration:c error:nil],
-                                 @"Unable to open a realm at path",
-                                 RLMErrorFileAccess,
-                                 @"Realm file decryption failed");
-    } else {
+    NSString *path;
+    @autoreleasepool {
         RLMRealm *realm = [self openRealmForPartitionValue:NSStringFromSelector(_cmd)
                                                       user:user
                                              encryptionKey:RLMGenerateKey()
                                                 stopPolicy:RLMSyncStopPolicyImmediately];
-        [self addPersonsToRealm:realm persons:@[[Person john]]];
-        [self waitForUploadsForRealm:realm];
-        CHECK_COUNT(1, Person, realm);
+        path = realm.configuration.pathOnDisk;
     }
+    [user.app.syncManager waitForSessionTermination];
+
+    RLMRealmConfiguration *c = [RLMRealmConfiguration defaultConfiguration];
+    c.fileURL = [NSURL fileURLWithPath:path];
+    RLMAssertThrowsWithError([RLMRealm realmWithConfiguration:c error:nil],
+                             @"Unable to open a realm at path",
+                             RLMErrorFileAccess,
+                             @"Realm file initial open failed");
+    c.encryptionKey = RLMGenerateKey();
+    RLMAssertThrowsWithError([RLMRealm realmWithConfiguration:c error:nil],
+                             @"Unable to open a realm at path",
+                             RLMErrorFileAccess,
+                             @"Realm file decryption failed");
 }
 
 #pragma mark - Multiple Realm Sync
@@ -1800,6 +1829,26 @@ static const NSInteger NUMBER_OF_BIG_OBJECTS = 2;
     XCTAssertLessThanOrEqual(finalSize, usedSize + realm::util::page_size());
 }
 
+- (void)testWriteCopy {
+    RLMUser *user = [self userForTest:_cmd];
+    NSString *partitionValue = NSStringFromSelector(_cmd);
+    RLMRealm *syncRealm = [self openRealmForPartitionValue:partitionValue user:user];
+    [self addPersonsToRealm:syncRealm persons:@[[Person john]]];
+
+    NSError *writeError;
+    XCTAssertTrue([syncRealm writeCopyToURL:RLMTestRealmURL()
+                              encryptionKey:syncRealm.configuration.encryptionKey
+                                      error:&writeError]);
+    XCTAssertNil(writeError);
+
+    RLMRealmConfiguration *localConfig = [RLMRealmConfiguration new];
+    localConfig.fileURL = RLMTestRealmURL();
+    localConfig.schemaVersion = 1;
+
+    RLMRealm *localCopy = [RLMRealm realmWithConfiguration:localConfig error:nil];
+    XCTAssertEqual(1U, [Person allObjectsInRealm:localCopy].count);
+}
+
 #pragma mark - Read Only
 
 - (void)testOpenSynchronouslyInReadOnlyBeforeRemoteSchemaIsInitialized {
@@ -1890,6 +1939,115 @@ static const NSInteger NUMBER_OF_BIG_OBJECTS = 2;
     RLMRealmConfiguration *localRealmConfiguration = [RLMRealmConfiguration defaultConfiguration];
     XCTAssertNoThrow([localRealmConfiguration setDeleteRealmIfMigrationNeeded:YES]);
 }
+
+#pragma mark - Write Copy For Configuration
+
+- (void)testWriteCopyForConfigurationLocalToSync {
+    RLMRealmConfiguration *localConfig = [RLMRealmConfiguration new];
+    localConfig.objectClasses = @[Person.class];
+    localConfig.fileURL = RLMTestRealmURL();
+
+    RLMUser *user = [self userForTest:_cmd];
+    RLMRealmConfiguration *syncConfig = [user configurationWithPartitionValue:NSStringFromSelector(_cmd)];
+    syncConfig.objectClasses = @[Person.class];
+
+    RLMRealm *localRealm = [RLMRealm realmWithConfiguration:localConfig error:nil];
+    [localRealm transactionWithBlock:^{
+        [localRealm addObject:[Person ringo]];
+    }];
+
+    [localRealm writeCopyForConfiguration:syncConfig error:nil];
+
+    RLMRealm *syncedRealm = [RLMRealm realmWithConfiguration:syncConfig error:nil];
+    XCTAssertEqual([[Person allObjectsInRealm:syncedRealm] objectsWhere:@"firstName = 'Ringo'"].count, 1U);
+
+    [self waitForDownloadsForRealm:syncedRealm];
+    [syncedRealm transactionWithBlock:^{
+        [syncedRealm addObject:[Person john]];
+    }];
+    [self waitForUploadsForRealm:syncedRealm];
+
+    RLMResults<Person *> *syncedResults = [Person allObjectsInRealm:syncedRealm];
+    XCTAssertEqual([syncedResults objectsWhere:@"firstName = 'Ringo'"].count, 1U);
+    XCTAssertEqual([syncedResults objectsWhere:@"firstName = 'John'"].count, 1U);
+}
+
+- (void)testWriteCopyForConfigurationSyncToSyncRealmError {
+    RLMUser *user = [self userForTest:_cmd];
+    RLMRealmConfiguration *syncConfig = [user configurationWithPartitionValue:NSStringFromSelector(_cmd)];
+    syncConfig.objectClasses = @[Person.class];
+
+    RLMUser *user2 = [self logInUserForCredentials:[self basicCredentialsWithName:@"SyncToSyncUser"
+                                                                         register:YES]];
+    RLMRealmConfiguration *syncConfig2 = [user2 configurationWithPartitionValue:NSStringFromSelector(_cmd)];
+
+    RLMRealm *syncedRealm = [RLMRealm realmWithConfiguration:syncConfig error:nil];
+    [syncedRealm.syncSession suspend];
+    [syncedRealm transactionWithBlock:^{
+        [syncedRealm addObject:[Person ringo]];
+    }];
+    // Cannot export a synced realm as not all changes have been synced.
+    NSError *error;
+    [syncedRealm writeCopyForConfiguration:syncConfig2 error:&error];
+    XCTAssertEqual(error.code, RLMErrorFail);
+    XCTAssertTrue([error.userInfo[NSLocalizedDescriptionKey] isEqualToString:@"Could not write file as not all client changes are integrated in server"]);
+}
+
+- (void)testWriteCopyForConfigurationLocalRealmForSyncWithExistingData {
+    RLMUser *initialUser = [self userForTest:_cmd];
+    RLMRealmConfiguration *initialSyncConfig = [initialUser configurationWithPartitionValue:NSStringFromSelector(_cmd)];
+    initialSyncConfig.objectClasses = @[Person.class];
+
+    // Make sure objects with confliciting primary keys sync ok.
+    RLMObjectId *conflictingObjectId = [RLMObjectId objectId];
+    Person *person = [Person ringo];
+    person._id = conflictingObjectId;
+
+    RLMRealm *initialRealm = [RLMRealm realmWithConfiguration:initialSyncConfig error:nil];
+    [initialRealm transactionWithBlock:^{
+        [initialRealm addObject:person];
+        [initialRealm addObject:[Person john]];
+    }];
+    [self waitForUploadsForRealm:initialRealm];
+
+    RLMRealmConfiguration *localConfig = [RLMRealmConfiguration new];
+    localConfig.objectClasses = @[Person.class];
+    localConfig.fileURL = RLMTestRealmURL();
+
+    RLMUser *user = [self logInUserForCredentials:[self basicCredentialsWithName:@"SyncWithExistingDataUser"
+                                                                        register:YES]];
+    RLMRealmConfiguration *syncConfig = [user configurationWithPartitionValue:NSStringFromSelector(_cmd)];
+    syncConfig.objectClasses = @[Person.class];
+
+    RLMRealm *localRealm = [RLMRealm realmWithConfiguration:localConfig error:nil];
+    // `person2` will override what was previously stored on the server.
+    Person *person2 = [Person new];
+    person2._id = conflictingObjectId;
+    person2.firstName = @"John";
+    person2.lastName = @"Doe";
+
+    [localRealm transactionWithBlock:^{
+        [localRealm addObject:person2];
+        [localRealm addObject:[Person george]];
+    }];
+
+    [localRealm writeCopyForConfiguration:syncConfig error:nil];
+
+    RLMRealm *syncedRealm = [RLMRealm realmWithConfiguration:syncConfig error:nil];
+    [self waitForDownloadsForRealm:syncedRealm];
+    XCTAssertEqual([syncedRealm allObjects:@"Person"].count, 3U);
+    [syncedRealm transactionWithBlock:^{
+        [syncedRealm addObject:[Person stuart]];
+    }];
+
+    [self waitForUploadsForRealm:syncedRealm];
+    RLMResults<Person *> *syncedResults = [Person allObjectsInRealm:syncedRealm];
+
+    NSPredicate *p = [NSPredicate predicateWithFormat:@"firstName = 'John' AND lastName = 'Doe' AND _id = %@", conflictingObjectId];
+    XCTAssertEqual([syncedResults objectsWithPredicate:p].count, 1U);
+    XCTAssertEqual([syncedRealm allObjects:@"Person"].count, 4U);
+}
+
 @end
 
 #pragma mark - Mongo Client
@@ -2405,13 +2563,13 @@ static const NSInteger NUMBER_OF_BIG_OBJECTS = 2;
 
     __block RLMChangeStream *changeStream = [collection watchWithDelegate:testUtility delegateQueue:delegateQueue];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        dispatch_semaphore_wait(testUtility.isOpenSemaphore, DISPATCH_TIME_FOREVER);
+        WAIT_FOR_SEMAPHORE(testUtility.isOpenSemaphore, 30.0);
         for (int i = 0; i < 3; i++) {
             [collection insertOneDocument:@{@"name": @"fido"} completion:^(id<RLMBSON> objectId, NSError *error) {
                 XCTAssertNil(error);
                 XCTAssertNotNil(objectId);
             }];
-            dispatch_semaphore_wait(testUtility.semaphore, DISPATCH_TIME_FOREVER);
+            WAIT_FOR_SEMAPHORE(testUtility.semaphore, 30.0);
         }
         [changeStream close];
     });
@@ -2466,7 +2624,7 @@ static const NSInteger NUMBER_OF_BIG_OBJECTS = 2;
                                                                delegateQueue:delegateQueue];
 
     dispatch_async(dispatch_get_global_queue( DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        dispatch_semaphore_wait(testUtility.isOpenSemaphore, DISPATCH_TIME_FOREVER);
+        WAIT_FOR_SEMAPHORE(testUtility.isOpenSemaphore, 30.0);
         for (int i = 0; i < 3; i++) {
             [collection updateOneDocumentWhere:@{@"_id": objectIds[0]}
                                 updateDocument:@{@"breed": @"king charles", @"name": [NSString stringWithFormat:@"fido-%d", i]}
@@ -2479,7 +2637,7 @@ static const NSInteger NUMBER_OF_BIG_OBJECTS = 2;
                                     completion:^(RLMUpdateResult *, NSError *error) {
                 XCTAssertNil(error);
             }];
-            dispatch_semaphore_wait(testUtility.semaphore, DISPATCH_TIME_FOREVER);
+            WAIT_FOR_SEMAPHORE(testUtility.semaphore, 30.0);
         }
         [changeStream close];
     });
@@ -2513,7 +2671,7 @@ static const NSInteger NUMBER_OF_BIG_OBJECTS = 2;
                                                              delegateQueue:delegateQueue];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        dispatch_semaphore_wait(testUtility.isOpenSemaphore, DISPATCH_TIME_FOREVER);
+        WAIT_FOR_SEMAPHORE(testUtility.isOpenSemaphore, 30.0);
         for (int i = 0; i < 3; i++) {
             [collection updateOneDocumentWhere:@{@"_id": objectIds[0]}
                                 updateDocument:@{@"breed": @"king charles", @"name": [NSString stringWithFormat:@"fido-%d", i]}
@@ -2526,7 +2684,7 @@ static const NSInteger NUMBER_OF_BIG_OBJECTS = 2;
                                     completion:^(RLMUpdateResult *, NSError *error) {
                 XCTAssertNil(error);
             }];
-            dispatch_semaphore_wait(testUtility.semaphore, DISPATCH_TIME_FOREVER);
+            WAIT_FOR_SEMAPHORE(testUtility.semaphore, 30.0);
         }
         [changeStream close];
     });
@@ -2571,8 +2729,8 @@ static const NSInteger NUMBER_OF_BIG_OBJECTS = 2;
                                                               delegateQueue:delegateQueue];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        dispatch_semaphore_wait(testUtility1.isOpenSemaphore, DISPATCH_TIME_FOREVER);
-        dispatch_semaphore_wait(testUtility2.isOpenSemaphore, DISPATCH_TIME_FOREVER);
+        WAIT_FOR_SEMAPHORE(testUtility1.isOpenSemaphore, 30.0);
+        WAIT_FOR_SEMAPHORE(testUtility2.isOpenSemaphore, 30.0);
         for (int i = 0; i < 3; i++) {
             [collection updateOneDocumentWhere:@{@"_id": objectIds[0]}
                                 updateDocument:@{@"breed": @"king charles", @"name": [NSString stringWithFormat:@"fido-%d", i]}
@@ -2591,8 +2749,8 @@ static const NSInteger NUMBER_OF_BIG_OBJECTS = 2;
                                     completion:^(RLMUpdateResult *, NSError *error) {
                 XCTAssertNil(error);
             }];
-            dispatch_semaphore_wait(testUtility1.semaphore, DISPATCH_TIME_FOREVER);
-            dispatch_semaphore_wait(testUtility2.semaphore, DISPATCH_TIME_FOREVER);
+            WAIT_FOR_SEMAPHORE(testUtility1.semaphore, 30.0);
+            WAIT_FOR_SEMAPHORE(testUtility2.semaphore, 30.0);
         }
         [changeStream1 close];
         [changeStream2 close];
@@ -2606,8 +2764,8 @@ static const NSInteger NUMBER_OF_BIG_OBJECTS = 2;
 static NSString *newPathForPartitionValue(RLMUser *user, id<RLMBSON> partitionValue) {
     std::stringstream s;
     s << RLMConvertRLMBSONToBson(partitionValue);
-    auto path = user._syncUser->sync_manager()->path_for_realm(*user._syncUser, s.str());
-    return @(path.c_str());
+    realm::SyncConfig config(user._syncUser, "");
+    return @(user._syncUser->sync_manager()->path_for_realm(config, s.str()).c_str());
 }
 
 - (void)testSyncFilePaths {
@@ -2637,9 +2795,9 @@ static NSString *oldPathForPartitionValue(RLMUser *user, id<RLMBSON> partitionVa
     std::stringstream s;
     s << RLMConvertRLMBSONToBson(partitionValue);
     NSString *encodedPartitionValue = [@(s.str().c_str()) stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]];
-    NSString *encodedRealmName = [[NSString alloc] initWithFormat:@"%@/%@", user.identifier, encodedPartitionValue];
-    auto path = user._syncUser->sync_manager()->path_for_realm(*user._syncUser, encodedRealmName.UTF8String);
-    return @(path.c_str());
+    realm::SyncConfig config(user._syncUser,
+                             [[NSString alloc] initWithFormat:@"%@/%@", user.identifier, encodedPartitionValue].UTF8String);
+    return @(user._syncUser->sync_manager()->path_for_realm(config).c_str());
 }
 
 - (void)testLegacyFilePathsAreUsedIfFilesArePresent {
@@ -2668,7 +2826,6 @@ static NSString *oldPathForPartitionValue(RLMUser *user, id<RLMBSON> partitionVa
     testPartitionValue(@123);
     testPartitionValue(nil);
 }
-
 @end
 
 #endif // TARGET_OS_OSX

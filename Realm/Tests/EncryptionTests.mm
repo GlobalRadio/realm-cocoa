@@ -107,7 +107,7 @@
     @autoreleasepool {
         NSData *key = RLMGenerateKey();
         // FIXME: Should throw a "Realm file decryption failed" exception
-        // https://github.com/realm/realm-cocoa-private/issues/347
+        // https://github.com/realm/realm-swift-private/issues/347
         XCTAssertThrows([self realmWithKey:key]);
         // RLMAssertThrowsWithError([self realmWithKey:key],
         //                          @"Unable to open a realm at path",
@@ -157,6 +157,28 @@
         RLMRealmConfiguration *config = [self configurationWithKey:key2];
         config.fileURL = RLMTestRealmURL();
         RLMRealm *realm = [RLMRealm realmWithConfiguration:config error:nil];
+        XCTAssertEqual(1U, [IntObject allObjectsInRealm:realm].count);
+    }
+}
+
+- (void)testWriteCopyForConfigurationAndKey {
+    NSData *key1 = RLMGenerateKey();
+    NSData *key2 = RLMGenerateKey();
+
+    RLMRealmConfiguration *destinationConfig = [self configurationWithKey:key2];
+    destinationConfig.encryptionKey = key2;
+    destinationConfig.fileURL = RLMTestRealmURL();
+
+    @autoreleasepool {
+        RLMRealm *realm = [self realmWithKey:key1];
+        [realm transactionWithBlock:^{
+            [IntObject createInRealm:realm withValue:@[@1]];
+        }];
+        [realm writeCopyForConfiguration:destinationConfig error:nil];
+    }
+
+    @autoreleasepool {
+        RLMRealm *realm = [RLMRealm realmWithConfiguration:destinationConfig error:nil];
         XCTAssertEqual(1U, [IntObject allObjectsInRealm:realm].count);
     }
 }

@@ -92,9 +92,9 @@ xctest() {
         (
             cd "$DIRECTORY"
             if [ -n "${REALM_BUILD_USING_LATEST_RELEASE:-}" ]; then
-                echo "github \"realm/realm-cocoa\"" > Cartfile
+                echo "github \"realm/realm-swift\"" > Cartfile
             else
-                echo "github \"realm/realm-cocoa\" \"${sha:-master}\"" > Cartfile
+                echo "github \"realm/realm-swift\" \"${sha:-master}\"" > Cartfile
             fi
             if [[ $PLATFORM == ios ]]; then
                 carthage update --platform iOS
@@ -191,6 +191,7 @@ case "$COMMAND" in
         ;;
 
     test-*-*-carthage)
+        export REALM_CARTHAGE_ARM_DISABLED='YES'
         xctest "$PLATFORM" "$LANGUAGE" CarthageExample
         ;;
 

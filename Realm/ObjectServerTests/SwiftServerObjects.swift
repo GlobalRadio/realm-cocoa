@@ -19,41 +19,41 @@
 import Foundation
 import RealmSwift
 
-public class SwiftPerson: Object, ObjectKeyIdentifiable {
-    @objc public dynamic var _id: ObjectId? = ObjectId.generate()
-    @objc public dynamic var firstName: String = ""
-    @objc public dynamic var lastName: String = ""
-    @objc public dynamic var age: Int = 30
+public class SwiftPerson: Object {
+    @Persisted(primaryKey: true) public var _id: ObjectId = ObjectId.generate()
+    @Persisted public var firstName: String = ""
+    @Persisted public var lastName: String = ""
+    @Persisted public var age: Int = 30
 
-    public convenience init(firstName: String, lastName: String) {
+    public convenience init(firstName: String, lastName: String, age: Int = 30) {
         self.init()
         self.firstName = firstName
         self.lastName = lastName
-    }
-
-    public override class func primaryKey() -> String? {
-        return "_id"
+        self.age = age
     }
 }
 
+@available(OSX 10.15, watchOS 6.0, iOS 13.0, iOSApplicationExtension 13.0, OSXApplicationExtension 10.15, tvOS 13.0, *)
+extension SwiftPerson: ObjectKeyIdentifiable {}
+
 public class SwiftTypesSyncObject: Object {
-    @objc public dynamic var _id: ObjectId? = ObjectId.generate()
-    @objc public dynamic var boolCol: Bool = true
-    @objc public dynamic var intCol: Int = 1
-    @objc public dynamic var doubleCol: Double = 1.1
-    @objc public dynamic var stringCol: String = "string"
-    @objc public dynamic var binaryCol: Data = "string".data(using: String.Encoding.utf8)!
-    @objc public dynamic var dateCol: Date = Date(timeIntervalSince1970: -1)
-    @objc public dynamic var longCol: Int64 = 1
-    @objc public dynamic var decimalCol: Decimal128 = Decimal128(1)
-    @objc public dynamic var uuidCol: UUID = UUID(uuidString: "85d4fbee-6ec6-47df-bfa1-615931903d7e")!
-    @objc public dynamic var objectIdCol: ObjectId = .generate()
-    @objc public dynamic var objectCol: SwiftPerson?
-    public var anyCol = RealmProperty<AnyRealmValue>()
+    @Persisted(primaryKey: true) public var _id: ObjectId = ObjectId.generate()
+    @Persisted public var boolCol: Bool = true
+    @Persisted public var intCol: Int = 1
+    @Persisted public var doubleCol: Double = 1.1
+    @Persisted public var stringCol: String = "string"
+    @Persisted public var binaryCol: Data = "string".data(using: String.Encoding.utf8)!
+    @Persisted public var dateCol: Date = Date(timeIntervalSince1970: -1)
+    @Persisted public var longCol: Int64 = 1
+    @Persisted public var decimalCol: Decimal128 = Decimal128(1)
+    @Persisted public var uuidCol: UUID = UUID(uuidString: "85d4fbee-6ec6-47df-bfa1-615931903d7e")!
+    @Persisted public var objectIdCol: ObjectId = .generate()
+    @Persisted public var objectCol: SwiftPerson?
+    @Persisted public var anyCol: AnyRealmValue
 
     public convenience init(person: SwiftPerson) {
         self.init()
-        self.anyCol.value = .int(1)
+        self.anyCol = .int(1)
         self.objectCol = person
     }
 
@@ -183,13 +183,9 @@ public class SwiftMissingObject: Object {
     }
 }
 
-@objcMembers public class SwiftHugeSyncObject: Object, ObjectKeyIdentifiable {
-    dynamic var _id = ObjectId.generate()
-    dynamic var data: Data?
-
-    public override class func primaryKey() -> String? {
-        return "_id"
-    }
+public class SwiftHugeSyncObject: Object {
+    @Persisted(primaryKey: true) public var _id = ObjectId.generate()
+    @Persisted public var data: Data?
 
     public class func create() -> SwiftHugeSyncObject {
         let fakeDataSize = 1000000

@@ -855,8 +855,10 @@ id RLMAccessorContext::defaultValue(__unsafe_unretained NSString *const key) {
     return _defaultValues[key];
 }
 
-id RLMAccessorContext::propertyValue(__unsafe_unretained id const obj, size_t propIndex,
+id RLMAccessorContext::propertyValue(id obj, size_t propIndex,
                                      __unsafe_unretained RLMProperty *const prop) {
+    obj = RLMBridgeSwiftValue(obj) ?: obj;
+
     // Property value from an NSArray
     if ([obj respondsToSelector:@selector(objectAtIndex:)]) {
         return propIndex < [obj count] ? [obj objectAtIndex:propIndex] : nil;
@@ -868,15 +870,13 @@ id RLMAccessorContext::propertyValue(__unsafe_unretained id const obj, size_t pr
     }
 
     // Property value from an instance of this object type
-    id value;
     if ([obj isKindOfClass:_info.rlmObjectSchema.objectClass] && prop.swiftAccessor) {
         return [prop.swiftAccessor get:prop on:obj];
     }
-    else {
-        // Property value from some object that's KVC-compatible
-        value = RLMValidatedValueForProperty(obj, [obj respondsToSelector:prop.getterSel] ? prop.getterName : prop.name,
-                                             _info.rlmObjectSchema.className);
-    }
+
+    // Property value from some object that's KVC-compatible
+    id value = RLMValidatedValueForProperty(obj, [obj respondsToSelector:prop.getterSel] ? prop.getterName : prop.name,
+                                            _info.rlmObjectSchema.className);
     return value ?: NSNull.null;
 }
 
@@ -1034,6 +1034,7 @@ RLMAccessorContext::createObject(id value, realm::CreatePolicy policy,
 
     RLMObjectBase *objBase = RLMDynamicCast<RLMObjectBase>(value);
     realm::Obj obj, *outObj = nullptr;
+    bool requiresSwiftUIObservers = false;
     if (objBase) {
         if (objBase.isInvalidated) {
             if (policy.create && !policy.copy) {
@@ -1067,7 +1068,10 @@ RLMAccessorContext::createObject(id value, realm::CreatePolicy policy,
                 @throw RLMException(@"Object is already managed by another Realm. Use create instead to copy it into this Realm.");
             }
             if (objBase->_observationInfo && objBase->_observationInfo->hasObservers()) {
-                @throw RLMException(@"Cannot add an object with observers to a Realm");
+                requiresSwiftUIObservers = [RLMSwiftUIKVO removeObserversFromObject:objBase];
+                if (!requiresSwiftUIObservers) {
+                    @throw RLMException(@"Cannot add an object with observers to a Realm");
+                }
             }
 
             REALM_ASSERT([objBase->_objectSchema.className isEqualToString:_info.rlmObjectSchema.className]);
@@ -1107,6 +1111,10 @@ RLMAccessorContext::createObject(id value, realm::CreatePolicy policy,
 
         object_setClass(objBase, _info.rlmObjectSchema.accessorClass);
         RLMInitializeSwiftAccessor(objBase, true);
+    }
+
+    if (requiresSwiftUIObservers) {
+        [RLMSwiftUIKVO addObserversToObject:objBase];
     }
 
     return {*outObj, false};

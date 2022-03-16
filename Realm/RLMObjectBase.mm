@@ -96,6 +96,7 @@ static id coerceToObjectType(id obj, Class cls, RLMSchema *schema) {
     if ([obj isKindOfClass:cls]) {
         return obj;
     }
+    obj = RLMBridgeSwiftValue(obj) ?: obj;
     id value = [[cls alloc] init];
     RLMInitializeWithValue(value, obj, schema);
     return value;
@@ -114,8 +115,11 @@ static id validatedObjectForProperty(__unsafe_unretained id const obj,
         if (prop.dictionary) {
             NSMutableDictionary *ret = [[NSMutableDictionary alloc] init];
             for (id key in obj) {
-                id val = coerceToObjectType(obj[key], objectClass, schema);
-                [ret setObject:val forKey:key];
+                id val = RLMCoerceToNil(obj[key]);
+                if (val) {
+                    val = coerceToObjectType(obj[key], objectClass, schema);
+                }
+                [ret setObject:val ?: NSNull.null forKey:key];
             }
             return ret;
         }
@@ -486,6 +490,16 @@ BOOL RLMObjectBaseAreEqual(RLMObjectBase *o1, RLMObjectBase *o2) {
         && o1->_row.get_key() == o2->_row.get_key();
 }
 
+static id resolveObject(RLMObjectBase *obj, RLMRealm *realm) {
+    RLMObjectBase *resolved = RLMCreateManagedAccessor(obj.class, &realm->_info[obj->_info->rlmObjectSchema.className]);
+    resolved->_row = realm->_realm->import_copy_of(obj->_row);
+    if (!resolved->_row.is_valid()) {
+        return nil;
+    }
+    RLMInitializeSwiftAccessor(resolved, false);
+    return resolved;
+}
+
 id RLMObjectFreeze(RLMObjectBase *obj) {
     if (!obj->_realm && !obj.isInvalidated) {
         @throw RLMException(@"Unmanaged objects cannot be frozen.");
@@ -494,14 +508,11 @@ id RLMObjectFreeze(RLMObjectBase *obj) {
     if (obj->_realm.frozen) {
         return obj;
     }
-    RLMRealm *frozenRealm = [obj->_realm freeze];
-    RLMObjectBase *frozen = RLMCreateManagedAccessor(obj.class, &frozenRealm->_info[obj->_info->rlmObjectSchema.className]);
-    frozen->_row = frozenRealm->_realm->import_copy_of(obj->_row);
-    if (!frozen->_row.is_valid()) {
+    obj = resolveObject(obj, obj->_realm.freeze);
+    if (!obj) {
         @throw RLMException(@"Cannot freeze an object in the same write transaction as it was created in.");
     }
-    RLMInitializeSwiftAccessor(frozen, false);
-    return frozen;
+    return obj;
 }
 
 id RLMObjectThaw(RLMObjectBase *obj) {
@@ -512,14 +523,7 @@ id RLMObjectThaw(RLMObjectBase *obj) {
     if (!obj->_realm.frozen) {
         return obj;
     }
-    RLMRealm *liveRealm = [obj->_realm thaw];
-    RLMObjectBase *live = RLMCreateManagedAccessor(obj.class, &liveRealm->_info[obj->_info->rlmObjectSchema.className]);
-    live->_row = liveRealm->_realm->import_copy_of(obj->_row);
-    if (!live->_row.is_valid()) {
-        return nil;
-    }
-    RLMInitializeSwiftAccessor(live, false);
-    return live;
+    return resolveObject(obj, obj->_realm.thaw);
 }
 
 id RLMValidatedValueForProperty(id object, NSString *key, NSString *className) {

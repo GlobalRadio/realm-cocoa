@@ -40,6 +40,7 @@ class ModernAllTypesObject: Object {
     @Persisted var objectCol: ModernAllTypesObject?
     @Persisted var arrayCol: List<ModernAllTypesObject>
     @Persisted var setCol: MutableSet<ModernAllTypesObject>
+    @Persisted var mapCol: Map<String, ModernAllTypesObject?>
     @Persisted var anyCol: AnyRealmValue
     @Persisted var uuidCol: UUID
     @Persisted var intEnumCol: ModernIntEnum
@@ -157,6 +158,13 @@ class ModernAllTypesObject: Object {
 
     @Persisted(originProperty: "objectCol")
     var linkingObjects: LinkingObjects<ModernAllTypesObject>
+}
+
+class LinkToModernAllTypesObject: Object {
+    @Persisted var object: ModernAllTypesObject?
+    @Persisted var list: List<ModernAllTypesObject>
+    @Persisted var set: MutableSet<ModernAllTypesObject>
+    @Persisted var map: Map<String, ModernAllTypesObject?>
 }
 
 enum ModernIntEnum: Int, Codable, PersistableEnum {
@@ -377,6 +385,10 @@ class ModernEmbeddedTreeObject3: EmbeddedObject, ModernEmbeddedTreeObject {
     var parent4: LinkingObjects<ModernEmbeddedTreeObject2>
 }
 
+class ModernEmbeddedObject: EmbeddedObject {
+    @Persisted var value = 0
+}
+
 class SetterObservers: Object {
     @Persisted var value: Int {
         willSet {
@@ -411,6 +423,7 @@ class ModernAllIndexableTypesObject: Object {
     @Persisted(indexed: true) var int64Col: Int64 = 4
     @Persisted(indexed: true) var stringCol: String
     @Persisted(indexed: true) var dateCol: Date
+    @Persisted(indexed: true) var uuidCol: UUID
     @Persisted(indexed: true) var objectIdCol: ObjectId
     @Persisted(indexed: true) var intEnumCol: ModernIntEnum
     @Persisted(indexed: true) var stringEnumCol: ModernStringEnum
@@ -423,6 +436,7 @@ class ModernAllIndexableTypesObject: Object {
     @Persisted(indexed: true) var optBoolCol: Bool?
     @Persisted(indexed: true) var optStringCol: String?
     @Persisted(indexed: true) var optDateCol: Date?
+    @Persisted(indexed: true) var optUuidCol: UUID?
     @Persisted(indexed: true) var optObjectIdCol: ObjectId?
     @Persisted(indexed: true) var optIntEnumCol: ModernIntEnum?
     @Persisted(indexed: true) var optStringEnumCol: ModernStringEnum?
@@ -437,6 +451,7 @@ class ModernAllIndexableButNotIndexedObject: Object {
     @Persisted(indexed: false) var int64Col: Int64 = 4
     @Persisted(indexed: false) var stringCol: String
     @Persisted(indexed: false) var dateCol: Date
+    @Persisted(indexed: false) var uuidCol: UUID
     @Persisted(indexed: false) var objectIdCol: ObjectId
     @Persisted(indexed: false) var intEnumCol: ModernIntEnum
     @Persisted(indexed: false) var stringEnumCol: ModernStringEnum
@@ -449,7 +464,75 @@ class ModernAllIndexableButNotIndexedObject: Object {
     @Persisted(indexed: false) var optBoolCol: Bool?
     @Persisted(indexed: false) var optStringCol: String?
     @Persisted(indexed: false) var optDateCol: Date?
+    @Persisted(indexed: false) var optUuidCol: UUID?
     @Persisted(indexed: false) var optObjectIdCol: ObjectId?
     @Persisted(indexed: false) var optIntEnumCol: ModernIntEnum?
     @Persisted(indexed: false) var optStringEnumCol: ModernStringEnum?
+}
+
+class ModernCollectionsOfEnums: Object {
+    @Persisted var listInt: List<EnumInt>
+    @Persisted var listInt8: List<EnumInt8>
+    @Persisted var listInt16: List<EnumInt16>
+    @Persisted var listInt32: List<EnumInt32>
+    @Persisted var listInt64: List<EnumInt64>
+    @Persisted var listFloat: List<EnumFloat>
+    @Persisted var listDouble: List<EnumDouble>
+    @Persisted var listString: List<EnumString>
+
+    @Persisted var listIntOpt: List<EnumInt?>
+    @Persisted var listInt8Opt: List<EnumInt8?>
+    @Persisted var listInt16Opt: List<EnumInt16?>
+    @Persisted var listInt32Opt: List<EnumInt32?>
+    @Persisted var listInt64Opt: List<EnumInt64?>
+    @Persisted var listFloatOpt: List<EnumFloat?>
+    @Persisted var listDoubleOpt: List<EnumDouble?>
+    @Persisted var listStringOpt: List<EnumString?>
+
+    @Persisted var setInt: MutableSet<EnumInt>
+    @Persisted var setInt8: MutableSet<EnumInt8>
+    @Persisted var setInt16: MutableSet<EnumInt16>
+    @Persisted var setInt32: MutableSet<EnumInt32>
+    @Persisted var setInt64: MutableSet<EnumInt64>
+    @Persisted var setFloat: MutableSet<EnumFloat>
+    @Persisted var setDouble: MutableSet<EnumDouble>
+    @Persisted var setString: MutableSet<EnumString>
+
+    @Persisted var setIntOpt: MutableSet<EnumInt?>
+    @Persisted var setInt8Opt: MutableSet<EnumInt8?>
+    @Persisted var setInt16Opt: MutableSet<EnumInt16?>
+    @Persisted var setInt32Opt: MutableSet<EnumInt32?>
+    @Persisted var setInt64Opt: MutableSet<EnumInt64?>
+    @Persisted var setFloatOpt: MutableSet<EnumFloat?>
+    @Persisted var setDoubleOpt: MutableSet<EnumDouble?>
+    @Persisted var setStringOpt: MutableSet<EnumString?>
+
+    @Persisted var mapInt: Map<String, EnumInt>
+    @Persisted var mapInt8: Map<String, EnumInt8>
+    @Persisted var mapInt16: Map<String, EnumInt16>
+    @Persisted var mapInt32: Map<String, EnumInt32>
+    @Persisted var mapInt64: Map<String, EnumInt64>
+    @Persisted var mapFloat: Map<String, EnumFloat>
+    @Persisted var mapDouble: Map<String, EnumDouble>
+    @Persisted var mapString: Map<String, EnumString>
+
+    @Persisted var mapIntOpt: Map<String, EnumInt?>
+    @Persisted var mapInt8Opt: Map<String, EnumInt8?>
+    @Persisted var mapInt16Opt: Map<String, EnumInt16?>
+    @Persisted var mapInt32Opt: Map<String, EnumInt32?>
+    @Persisted var mapInt64Opt: Map<String, EnumInt64?>
+    @Persisted var mapFloatOpt: Map<String, EnumFloat?>
+    @Persisted var mapDoubleOpt: Map<String, EnumDouble?>
+    @Persisted var mapStringOpt: Map<String, EnumString?>
+}
+
+class LinkToModernCollectionsOfEnums: Object {
+    @Persisted var object: ModernCollectionsOfEnums?
+    @Persisted var list: List<ModernCollectionsOfEnums>
+    @Persisted var set: MutableSet<ModernCollectionsOfEnums>
+    @Persisted var map: Map<String, ModernCollectionsOfEnums?>
+}
+
+class ModernListAnyRealmValueObject: Object {
+    @Persisted var value: List<AnyRealmValue>
 }
