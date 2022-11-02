@@ -6,14 +6,14 @@ Pod::Spec.new do |s|
   s.cocoapods_version       = '>= 1.10'
   s.summary                 = 'Realm is a modern data framework & database for iOS, macOS, tvOS & watchOS.'
   s.description             = <<-DESC
-                              The Realm Mobile Database, for Objective-C. (If you want to use Realm from Swift, see the “RealmSwift” pod.)
+                              The Realm Database, for Objective-C. (If you want to use Realm from Swift, see the “RealmSwift” pod.)
 
-                              The Realm Mobile Database is a fast, easy-to-use replacement for Core Data & SQLite. Use it with MongoDB Realm Sync for realtime, automatic data sync. Works on iOS, macOS, tvOS & watchOS. Learn more and get help at https://realm.io.
+                              Realm is a fast, easy-to-use replacement for Core Data & SQLite. Use it with Atlas Device Sync for realtime, automatic data sync. Works on iOS, macOS, tvOS & watchOS. Learn more and get help at https://www.mongodb.com/docs/realm/sdk/swift/.
                               DESC
   s.homepage                = "https://realm.io"
   s.source                  = { :git => 'https://github.com/realm/realm-swift.git', :tag => "v#{s.version}" }
   s.author                  = { 'Realm' => 'realm-help@mongodb.com' }
-  s.library                 = 'c++', 'z'
+  s.library                 = 'c++', 'z', 'compression'
   s.requires_arc            = true
   s.social_media_url        = 'https://twitter.com/realm'
   s.documentation_url       = "https://docs.mongodb.com/realm/sdk/swift"
@@ -23,6 +23,7 @@ Pod::Spec.new do |s|
 
                               # Realm module
                               'include/RLMArray.h',
+                              'include/RLMAsymmetricObject.h',
                               'include/RLMCollection.h',
                               'include/RLMConstants.h',
                               'include/RLMDecimal128.h',
@@ -39,6 +40,7 @@ Pod::Spec.new do |s|
                               'include/RLMRealmConfiguration.h',
                               'include/RLMResults.h',
                               'include/RLMSchema.h',
+                              'include/RLMSectionedResults.h',
                               'include/RLMSet.h',
                               'include/RLMSwiftCollectionBase.h',
                               'include/RLMSwiftValueStorage.h',
@@ -54,7 +56,6 @@ Pod::Spec.new do |s|
                               'include/RLMPushClient.h',
                               'include/RLMProviderClient.h',
                               'include/RLMRealm+Sync.h',
-                              'include/RLMRealmConfiguration+Sync.h',
                               'include/RLMSyncConfiguration.h',
                               'include/RLMCredentials.h',
                               'include/RLMSyncManager.h',
@@ -83,6 +84,7 @@ Pod::Spec.new do |s|
                               'include/RLMBSON_Private.h',
                               'include/RLMCollection_Private.h',
                               'include/RLMDictionary_Private.h',
+                              'include/RLMEvent.h',
                               'include/RLMObjectBase_Private.h',
                               'include/RLMObjectSchema_Private.h',
                               'include/RLMObjectStore.h',

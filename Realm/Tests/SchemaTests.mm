@@ -341,7 +341,6 @@ RLM_COLLECTION_TYPE(NotARealClass)
 @implementation OrphanObject
 @end
 
-
 @interface SchemaTests : RLMMultiProcessTestCase
 @end
 
@@ -1006,7 +1005,7 @@ RLM_COLLECTION_TYPE(NotARealClass)
             [notificationFired fulfill];
         }
     }];
-    [self waitForExpectationsWithTimeout:10.0 handler:nil];
+    [self waitForExpectationsWithTimeout:30.0 handler:nil];
     [token invalidate];
 
     // Release the write transaction and let them run
@@ -1236,6 +1235,17 @@ RLM_COLLECTION_TYPE(NotARealClass)
     config.objectClasses = @[OrphanObject.class];
     RLMRealm *realm = [RLMRealm realmWithConfiguration:config error:nil];
     XCTAssertNotNil([realm.schema schemaForClassName:@"OrphanObject"]);
+}
+
+- (void)testDynamicUnmanagedAccessorsBeforeSharedSchemaInit {
+    if (self.isParent) {
+        RLMRunChildAndWait();
+        return;
+    }
+
+    IntObject *io = [IntObject new];
+    io[@"intCol"] = @10;
+    XCTAssertEqualObjects(io[@"intCol"], @10);
 }
 #endif
 

@@ -73,8 +73,13 @@ import Realm
         return collection[UInt(index)] as! Element
     }
 
-    // MARK: Implementation
+    // MARK: Equatable
 
+    public static func == (lhs: LinkingObjects<Element>, rhs: LinkingObjects<Element>) -> Bool {
+        lhs.collection.isEqual(rhs.collection)
+    }
+
+    // MARK: Implementation
     internal init(propertyName: String, handle: RLMLinkingObjectsHandle?) {
         self.propertyName = propertyName
         self.handle = handle
@@ -91,4 +96,9 @@ import Realm
     internal var propertyName: String
     internal var handle: RLMLinkingObjectsHandle?
     internal var lastAccessedNames: NSMutableArray?
+
+    /// :nodoc:
+    public func makeIterator() -> RLMIterator<Element> {
+        return RLMIterator(collection: collection)
+    }
 }

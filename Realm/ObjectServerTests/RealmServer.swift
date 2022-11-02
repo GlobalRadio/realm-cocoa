@@ -71,10 +71,10 @@ private func bsonType(_ type: PropertyType) -> String {
 }
 
 private extension Property {
-    func stitchRule(_ schema: Schema) -> [String: Any] {
+    func stitchRule(_ objectSchema: ObjectSchema) -> [String: Any] {
         let type: String
         if self.type == .object {
-            type = bsonType(schema[objectClassName!]!.primaryKeyProperty!.type)
+            type = bsonType(objectSchema.primaryKeyProperty!.type)
         } else {
             type = bsonType(self.type)
         }
@@ -113,20 +113,27 @@ private extension Property {
 }
 
 private extension ObjectSchema {
-    func stitchRule(_ partitionKeyType: String, _ schema: Schema, id: String? = nil) -> [String: Any] {
-        var stitchProperties: [String: Any] = [
-            "realm_id": [
+    func stitchRule(_ partitionKeyType: String?, id: String? = nil) -> [String: Any] {
+        var stitchProperties: [String: Any] = [:]
+
+        // We only add a partition property for pbs
+        if let partitionKeyType = partitionKeyType {
+            stitchProperties["realm_id"] = [
                 "bsonType": "\(partitionKeyType)"
             ]
-        ]
+        }
+
         var relationships: [String: Any] = [:]
+
+        // First pass we only add the properties to the schema as we can't add
+        // links until the targets of the links exist.
+        let pk = primaryKeyProperty!
+        stitchProperties[pk.name] = pk.stitchRule(self)
         for property in properties {
-            // First pass we only add the properties to the schema as we can't add
-            // links until the targets of the links exist.
             if property.type != .object {
-                stitchProperties[property.name] = property.stitchRule(schema)
-            } else if property.type == .object && id != nil {
-                stitchProperties[property.name] = property.stitchRule(schema)
+                stitchProperties[property.name] = property.stitchRule(self)
+            } else if id != nil {
+                stitchProperties[property.name] = property.stitchRule(self)
                 relationships[property.name] = [
                     "ref": "#/relationship/mongodb1/test_data/\(property.objectClassName!)",
                     "foreign_key": "_id",
@@ -137,21 +144,17 @@ private extension ObjectSchema {
 
         return [
             "_id": id as Any,
-            "database": "test_data",
-            "collection": "\(className)",
-            "roles": [[
-                "name": "default",
-                "apply_when": [:],
-                "insert": true,
-                "delete": true,
-                "additional_fields": [:]
-            ]],
             "schema": [
                 "properties": stitchProperties,
                 // The server currently only supports non-optional collections
                 // but requires them to be marked as optional
                 "required": properties.compactMap { $0.isOptional || $0.type == .any || $0.isArray || $0.isMap || $0.isSet ? nil : $0.name },
                 "title": "\(className)"
+            ],
+            "metadata": [
+                "data_source": "mongodb1",
+                "database": "test_data",
+                "collection": "\(className)",
             ],
             "relationships": relationships
         ]
@@ -247,7 +250,7 @@ class Admin {
             private func request(httpMethod: String, data: Any? = nil,
                                  completionHandler: @escaping (Result<Any?, Error>) -> Void) {
                 var components = URLComponents(url: self.url, resolvingAgainstBaseURL: false)!
-                components.query = "bypass_service_change=SyncProtocolVersionIncrease"
+                components.query = "bypass_service_change=DestructiveSyncProtocolVersionIncrease"
                 var request = URLRequest(url: components.url!)
                 request.httpMethod = httpMethod
                 request.allHTTPHeaderFields = [
@@ -290,8 +293,9 @@ class Admin {
                     result = $0
                     group.leave()
                 }
-                guard case .success = group.wait(timeout: .now() + 5) else {
-                    return .failure(URLError(.badServerResponse))
+                guard case .success = group.wait(timeout: .now() + 60) else {
+                    print("HTTP request timed out: \(httpMethod) \(self.url)")
+                    return .failure(URLError(.timedOut))
                 }
                 return result
             }
@@ -329,6 +333,14 @@ class Admin {
                 request(on: group, httpMethod: "PUT", data: data, completionHandler)
             }
 
+            func put(data: Any? = nil, _ completionHandler: @escaping (Result<Any?, Error>) -> Void) {
+                request(httpMethod: "PUT", data: data, completionHandler: completionHandler)
+            }
+
+            func put(_ data: Any) -> Result<Any?, Error> {
+                request(httpMethod: "PUT", data: data)
+            }
+
             func delete(_ completionHandler: @escaping (Result<Any?, Error>) -> Void) {
                 request(httpMethod: "DELETE", completionHandler: completionHandler)
             }
@@ -337,12 +349,20 @@ class Admin {
                 request(on: group, httpMethod: "DELETE", completionHandler)
             }
 
+            func delete() -> Result<Any?, Error> {
+                request(httpMethod: "DELETE")
+            }
+
             func patch(on group: DispatchGroup, _ data: Any, _ completionHandler: @escaping (Result<Any?, Error>) -> Void) {
                 request(on: group, httpMethod: "PATCH", data: data, completionHandler)
             }
 
             func patch(_ data: Any) -> Result<Any?, Error> {
                 request(httpMethod: "PATCH", data: data)
+            }
+
+            func patch(_ data: Any, _ completionHandler: @escaping (Result<Any?, Error>) -> Void) {
+                request(httpMethod: "PATCH", data: data, completionHandler: completionHandler)
             }
         }
 
@@ -572,7 +592,9 @@ public class RealmServer: NSObject {
         serverProcess.currentDirectoryPath = tempDir.path
         serverProcess.arguments = [
             "--configFile",
-            "\(stitchRoot)/etc/configs/test_config.json"
+            "\(stitchRoot)/etc/configs/test_config.json",
+            "--configFile",
+            "\(RealmServer.rootUrl)/Realm/ObjectServerTests/config_overrides.json"
         ]
 
         let pipe = Pipe()
@@ -651,7 +673,7 @@ public class RealmServer: NSObject {
     /// Create a new server app
     /// This will create a App with different configuration depending on the SyncMode (partition based sync or flexible sync), partition type is used only in case
     /// this is partition based sync, and will crash if one is not provided in that mode
-    public func createAppForSyncMode(_ syncMode: SyncMode) throws -> AppId {
+    func createAppForSyncMode(_ syncMode: SyncMode, _ objectsSchema: [ObjectSchema]) throws -> AppId {
         guard let session = session else {
             throw URLError(.unknown)
         }
@@ -717,96 +739,107 @@ public class RealmServer: NSObject {
             "value": "mongodb://localhost:26000"
         ])
 
-        // Creating the rules is a two-step process where we first add all the
-        // rules and then add properties to them so that we can add relationships
-        let schema = ObjectiveCSupport.convert(object: RLMSchema.shared())
-
-        let appService: Any
-        switch syncMode {
-        case .pbs(let bsonType):
-            appService = [
-                "name": "mongodb1",
-                "type": "mongodb",
-                "config": [
-                    "uri": "mongodb://localhost:26000",
-                    "sync": [
-                        "state": "enabled",
-                        "database_name": "test_data",
-                        "partition": [
-                            "key": "realm_id",
-                            "type": "\(bsonType)",
-                            "required": false,
-                            "permissions": [
-                                "read": true,
-                                "write": true
-                            ]
-                        ]
-                    ]
-                ]
-                ]
-        case .flx(let fields):
-            appService = [
-                "name": "mongodb1",
-                "type": "mongodb",
-                "config": [
-                    "uri": "mongodb://localhost:26000",
-                    "flexible_sync": [
-                        "state": "enabled",
-                        "database_name": "test_data",
-                        "queryable_fields_names": fields,
-                        "permissions": [
-                            "rules": [:],
-                            "defaultRoles": [[
-                                "name": "all",
-                                "applyWhen": [:],
-                                "read": true,
-                                "write": true
-                            ]]
-                        ]
-                    ]
-                ]
+        let appService: [String: Any] = [
+            "name": "mongodb1",
+            "type": "mongodb",
+            "config": [
+                "uri": "mongodb://localhost:26000"
             ]
-        }
+        ]
 
         let serviceResponse = app.services.post(appService)
         guard let serviceId = (try serviceResponse.get() as? [String: Any])?["_id"] as? String else {
             throw URLError(.badServerResponse)
         }
 
-        let rules = app.services[serviceId].rules
-
+        // Creating the schema is a two-step process where we first add all the
+        // objects with their properties to them so that we can add relationships
         let syncTypes: [ObjectSchema]
         let partitionKeyType: String?
         if case .pbs(let bsonType) = syncMode {
-            syncTypes = schema.objectSchema.filter {
+            syncTypes = objectsSchema.filter {
                 guard let pk = $0.primaryKeyProperty else { return false }
                 return pk.name == "_id"
             }
             partitionKeyType = bsonType
         } else {
-            // This is a temporary workaround for not been able to add the complete schema for a flx App
-            syncTypes = schema.objectSchema.filter {
-                let validSyncClasses = ["Dog", "Person", "SwiftPerson", "SwiftTypesSyncObject"]
+            syncTypes = objectsSchema.filter {
+                let validSyncClasses = ["Dog", "Person", "SwiftPerson", "SwiftTypesSyncObject", "PersonAsymmetric", "SwiftObjectAsymmetric", "HugeObjectAsymmetric"]
                 return validSyncClasses.contains($0.className)
             }
             partitionKeyType = nil
         }
-        var ruleCreations = [Result<Any?, Error>]()
+        var schemaCreations = [Result<Any?, Error>]()
+        var asymmetricTables = [String]()
         for objectSchema in syncTypes {
-            ruleCreations.append(rules.post(objectSchema.stitchRule(partitionKeyType ?? "string", schema)))
+            schemaCreations.append(app.schemas.post(objectSchema.stitchRule(partitionKeyType)))
+            if objectSchema.isAsymmetric {
+                asymmetricTables.append(objectSchema.className)
+            }
         }
 
-        var ruleIds: [String: String] = [:]
-        for result in ruleCreations {
+        var schemaIds: [String: String] = [:]
+        for result in schemaCreations {
             guard case .success(let data) = result else {
-                fatalError("Failed to create rule: \(result)")
+                fatalError("Failed to create schema: \(result)")
             }
-            let dict = (data as! [String: String])
-            ruleIds[dict["collection"]!] = dict["_id"]!
+            let dict = (data as! [String: Any])
+            let metadata = dict["metadata"] as! [String: String]
+            schemaIds[metadata["collection"]!] = dict["_id"]! as? String
         }
+
+        var schemaUpdates = [Result<Any?, Error>]()
         for objectSchema in syncTypes {
-            let id = ruleIds[objectSchema.className]!
-            rules[id].put(on: group, data: objectSchema.stitchRule(partitionKeyType ?? "string", schema, id: id), failOnError)
+            let schemaId = schemaIds[objectSchema.className]!
+            schemaUpdates.append(app.schemas[schemaId].put(objectSchema.stitchRule(partitionKeyType, id: schemaId)))
+        }
+
+        for result in schemaUpdates {
+            guard case .success = result else {
+                fatalError("Failed to create relationships for schema: \(result)")
+            }
+        }
+
+        let serviceConfig: Any
+        switch syncMode {
+        case .pbs(let bsonType):
+            serviceConfig = [
+                "sync": [
+                    "state": "enabled",
+                    "database_name": "test_data",
+                    "partition": [
+                        "key": "realm_id",
+                        "type": "\(bsonType)",
+                        "required": false,
+                        "permissions": [
+                            "read": true,
+                            "write": true
+                        ]
+                    ]
+                ]
+            ]
+        case .flx(let fields):
+            serviceConfig = [
+                "flexible_sync": [
+                    "state": "enabled",
+                    "database_name": "test_data",
+                    "queryable_fields_names": fields,
+                    "asymmetric_tables": asymmetricTables,
+                    "permissions": [
+                        "rules": [:],
+                        "defaultRoles": [[
+                            "name": "all",
+                            "applyWhen": [:],
+                            "read": true,
+                            "write": true
+                        ]]
+                    ]
+                ]
+            ]
+        }
+        let serviceConfigResponse = app.services[serviceId].config.patch(serviceConfig)
+        guard case .success = serviceConfigResponse else {
+            throw URLError(.badServerResponse)
         }
 
         app.sync.config.put(on: group, data: [
@@ -843,6 +876,7 @@ public class RealmServer: NSObject {
             """
         ], failOnError)
 
+        let rules = app.services[serviceId].rules
         let userDataRule: [String: Any] = [
             "database": "test_data",
             "collection": "UserData",
@@ -852,11 +886,8 @@ public class RealmServer: NSObject {
                 "insert": true,
                 "delete": true,
                 "additional_fields": [:]
-            ]],
-            "schema": [:],
-            "relationships": [:]
+            ]]
         ]
-
         _ = rules.post(userDataRule)
         app.customUserData.patch(on: group, [
             "mongo_service_id": serviceId,
@@ -891,21 +922,32 @@ public class RealmServer: NSObject {
     }
 
     @objc public func createAppWithQueryableFields(_ fields: [String]) throws -> AppId {
-        try createAppForSyncMode(.flx(fields))
+        let schema = ObjectiveCSupport.convert(object: RLMSchema.shared())
+        return try createAppForSyncMode(.flx(fields), schema.objectSchema)
+    }
+
+    @objc public func createAppForAsymmetricSchema(_ schema: [RLMObjectSchema]) throws -> AppId {
+        try createAppForSyncMode(.flx([]), schema.map(ObjectiveCSupport.convert(object:)))
+    }
+
+    public func createAppForAsymmetricSchema(_ schema: [ObjectSchema]) throws -> AppId {
+        try createAppForSyncMode(.flx([]), schema)
     }
 
     @objc public func createAppForBSONType(_ bsonType: String) throws -> AppId {
-        try createAppForSyncMode(.pbs(bsonType))
+        let schema = ObjectiveCSupport.convert(object: RLMSchema.shared())
+        return try createAppForSyncMode(.pbs(bsonType), schema.objectSchema)
     }
 
     @objc public func createApp() throws -> AppId {
-        try createAppForSyncMode(.pbs("string"))
+        let schema = ObjectiveCSupport.convert(object: RLMSchema.shared())
+        return try createAppForSyncMode(.pbs("string"), schema.objectSchema)
     }
 
-    // Retrieve MongoDB Realm AppId with ClientAppId using the Admin API
-    private func retrieveAppServerId(_ clientAppId: String) throws -> String {
+    // Retrieve Atlas App Services AppId with ClientAppId using the Admin API
+    public func retrieveAppServerId(_ clientAppId: String) throws -> String {
         guard let session = session else {
-            throw URLError(.unknown)
+            fatalError()
         }
 
         let appsListInfo = try session.apps.get().get()
@@ -927,25 +969,141 @@ public class RealmServer: NSObject {
         return appId
     }
 
-    public func retrieveUser(_ appId: String, userId: String, _ completion: @escaping (Result<Any?, Error>) -> Void) {
-        guard let appServerId = try? RealmServer.shared.retrieveAppServerId(appId),
-              let session = session else {
-            completion(.failure(URLError.unknown as! Error))
-            return
+    public func retrieveSyncServiceId(appServerId: String) throws -> String {
+        guard let session = session else {
+            fatalError()
         }
         let app = session.apps[appServerId]
-        app.users[userId].get(completion)
+        // Get all services
+        guard let syncServices = try app.services.get().get() as? [[String: Any]] else {
+            throw URLError(.unknown)
+        }
+        // Find sync service
+        guard let syncService = syncServices.first(where: {
+            $0["name"] as? String == "mongodb1"
+        }) else {
+            throw URLError(.unknown)
+        }
+        // Return sync service id
+        guard let serviceId = syncService["_id"] as? String else { throw URLError(.unknown) }
+        return serviceId
     }
 
-    // Remove User from MongoDB Realm using the Admin API
-    public func removeUserForApp(_ appId: String, userId: String, _ completion: @escaping (Result<Any?, Error>) -> Void) {
-        guard let appServerId = try? RealmServer.shared.retrieveAppServerId(appId),
-              let session = session else {
-            completion(.failure(URLError.unknown as! Error))
-            return
+    public func getSyncServiceConfiguration(appServerId: String, syncServiceId: String) throws -> [String: Any]? {
+        guard let session = session else {
+            fatalError()
         }
         let app = session.apps[appServerId]
-        app.users[userId].delete(completion)
+        do {
+            return try app.services[syncServiceId].config.get().get() as? [String: Any]
+        } catch {
+            throw URLError(.unknown)
+        }
+    }
+
+    public func isSyncEnabled(flexibleSync: Bool = false, appServerId: String, syncServiceId: String) throws -> Bool {
+        let configOption = flexibleSync ? "flexible_sync" : "sync"
+        guard let session = session else {
+            fatalError()
+        }
+        let app = session.apps[appServerId]
+        let response = try app.services[syncServiceId].config.get().get() as? [String: Any]
+        guard let syncInfo = response?[configOption] as? [String: Any] else {
+            return false
+        }
+        return (syncInfo["state"] as? String == "enabled")
+    }
+
+    public func isDevModeEnabled(appServerId: String, syncServiceId: String) throws -> Bool {
+        guard let session = session else {
+            fatalError()
+        }
+        let app = session.apps[appServerId]
+        let res = try app.sync.config.get().get() as? [String: Any]
+        guard let option = res!["development_mode_enabled"] as? Bool else {
+            return false
+        }
+        return option
+    }
+
+    public func enableDevMode(appServerId: String, syncServiceId: String, syncServiceConfiguration: [String: Any]) -> Result<Any?, Error> {
+        guard let session = session else {
+            return .failure(URLError.unknown as! Error)
+        }
+        let app = session.apps[appServerId]
+        return app.sync.config.put(["development_mode_enabled": true])
+    }
+
+    public func disableSync(flexibleSync: Bool = false, appServerId: String, syncServiceId: String)
+            -> Result<Any?, Error> {
+        let configOption = flexibleSync ? "flexible_sync" : "sync"
+        guard let session = session else {
+            return .failure(URLError.unknown as! Error)
+        }
+        let app = session.apps[appServerId]
+        return app.services[syncServiceId].config.patch([configOption: ["state": ""]])
+    }
+
+    public func enableSync(flexibleSync: Bool = false, appServerId: String, syncServiceId: String, syncServiceConfiguration: [String: Any]) -> Result<Any?, Error> {
+        let configOption = flexibleSync ? "flexible_sync" : "sync"
+        var syncConfig = syncServiceConfiguration
+        guard let session = session else {
+            return .failure(URLError.unknown as! Error)
+        }
+        let app = session.apps[appServerId]
+        guard var syncInfo = syncConfig[configOption] as? [String: Any] else {
+            return .failure(URLError.unknown as! Error)
+        }
+        syncInfo["state"] = "enabled"
+        syncConfig[configOption] = syncInfo
+        return app.services[syncServiceId].config.patch(syncConfig)
+    }
+
+    public func patchRecoveryMode(flexibleSync: Bool, disable: Bool, _ appServerId: String,
+                                  _ syncServiceId: String, _ syncServiceConfiguration: [String: Any]) -> Result<Any?, Error> {
+        guard let session = session else {
+            return .failure(URLError.unknown as! Error)
+        }
+
+        let configOption = flexibleSync ? "flexible_sync" : "sync"
+        let app = session.apps[appServerId]
+        var syncConfig = syncServiceConfiguration
+        return app.services[syncServiceId].config.get()
+            .map { response in
+                guard let config = response as? [String: Any] else { return false }
+                guard let syncInfo = config[configOption] as? [String: Any] else { return false }
+                return syncInfo["is_recovery_mode_disabled"] as? Bool ?? false
+            }
+            .flatMap { (isDisabled: Bool) in
+                if isDisabled == disable {
+                    return .success(syncConfig)
+                }
+
+                guard var syncInfo = syncConfig[configOption] as? [String: Any] else {
+                    return .failure(URLError.unknown as! Error)
+                }
+
+                syncInfo["is_recovery_mode_disabled"] = disable
+                syncConfig[configOption] = syncInfo
+                return app.services[syncServiceId].config.patch(syncConfig)
+            }
+    }
+
+    public func retrieveUser(_ appId: String, userId: String) -> Result<Any?, Error> {
+        guard let appServerId = try? RealmServer.shared.retrieveAppServerId(appId),
+              let session = session else {
+            return .failure(URLError.unknown as! Error)
+        }
+        return session.apps[appServerId].users[userId].get()
+    }
+
+    // Remove User from Atlas App Services using the Admin API
+    public func removeUserForApp(_ appId: String, userId: String) -> Result<Any?, Error> {
+        guard let appServerId = try? RealmServer.shared.retrieveAppServerId(appId),
+              let session = session else {
+            return .failure(URLError.unknown as! Error)
+        }
+        return session.apps[appServerId].users[userId].delete()
     }
 }
 

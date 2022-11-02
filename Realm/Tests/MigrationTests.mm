@@ -1481,20 +1481,6 @@ RLM_COLLECTION_TYPE(MigrationTestObject);
     [self assertMigrationRequiredForChangeFrom:@[fromChild, fromParent] to:@[toChild, toParent]];
 }
 
-- (void)testChangeTableToEmbeddedWithoutBacklinks {
-    RLMObjectSchema *fromChild = [RLMObjectSchema schemaForObjectClass:EmbeddedIntObject.class];
-    fromChild.isEmbedded = false;
-    RLMObjectSchema *toChild = [RLMObjectSchema schemaForObjectClass:EmbeddedIntObject.class];
-    [self createTestRealmWithSchema:@[fromChild] block:^(RLMRealm *) {}];
-    
-    RLMRealmConfiguration *realmConfiguration = self.config;
-    realmConfiguration.schemaVersion = 1;
-    realmConfiguration.customSchema = [self schemaWithObjects:@[toChild]];
-    NSError *error;
-    XCTAssertFalse([RLMRealm performMigrationForConfiguration:realmConfiguration error:&error]);
-    XCTAssertNotNil(error);
-}
-
 - (void)testChangeTableToEmbeddedWithOnlyOneLinkPerObject {
     RLMObjectSchema *fromChild = [RLMObjectSchema schemaForObjectClass:EmbeddedIntObject.class];
     fromChild.isEmbedded = false;
@@ -1541,7 +1527,7 @@ RLM_COLLECTION_TYPE(MigrationTestObject);
     XCTAssertEqual(secondParentsChild.intCol, 43);
 }
 
-- (void)testChangeToEmbeddedWithMultipleBacklinksWithoutProperMigration {
+- (void)testChangeToEmbeddedWithMultipleBacklinksHandledAutomatically {
     RLMObjectSchema *fromChild = [RLMObjectSchema schemaForObjectClass:EmbeddedIntObject.class];
     fromChild.isEmbedded = false;
     RLMObjectSchema *fromParent = [RLMObjectSchema schemaForObjectClass:EmbeddedIntParentObject.class];
@@ -1551,12 +1537,13 @@ RLM_COLLECTION_TYPE(MigrationTestObject);
         [realm createObject:EmbeddedIntParentObject.className withValue:@[@42, childObject, NSNull.null]];
         [realm createObject:EmbeddedIntParentObject.className withValue:@[@43, childObject, NSNull.null]];
     }];
-    
-    __block bool migrationCalled = false;
-    [self failToMigrateTestRealmWithBlock:^(RLMMigration *, uint64_t) {
-        migrationCalled = true;
-    }];
-    XCTAssert(migrationCalled);
+
+    RLMRealm *realm = [self migrateTestRealmWithBlock:^(RLMMigration *, uint64_t) {}];
+    RLMResults<EmbeddedIntParentObject *> *parents = [EmbeddedIntParentObject allObjectsInRealm:realm];
+    XCTAssertEqual(parents.count, 2U);
+    XCTAssertEqual(parents[0].object.intCol, 42);
+    XCTAssertEqual(parents[1].object.intCol, 42);
+    XCTAssertFalse([parents[0].object isEqualToObject:parents[1].object]);
 }
 
 - (void)testConvertToEmbeddedWithMultipleIncomingLinksResolvedInMigrationBlock {

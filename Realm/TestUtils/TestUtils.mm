@@ -194,14 +194,27 @@ static std::string fakeJWT() {
     return encoded_prefix + "." + encoded_body + "." + suffix;
 }
 
+// A network transport which doesn't actually do anything
+@interface NoOpTransport : NSObject <RLMNetworkTransport>
+@end
+@implementation NoOpTransport
+- (void)sendRequestToServer:(RLMRequest *)request
+                 completion:(RLMNetworkTransportCompletionBlock)completionBlock {
+}
+- (NSURLSession *)doStreamRequest:(RLMRequest *)request
+                  eventSubscriber:(id<RLMEventDelegate>)subscriber {
+    return nil;
+}
+@end
+
 RLMUser *RLMDummyUser() {
     // Add a fake user to the metadata Realm
     @autoreleasepool {
         auto config = [RLMSyncManager configurationWithRootDirectory:nil appId:@"dummy"];
         realm::SyncFileManager sfm(config.base_file_path, "dummy");
-        realm::util::Optional<std::vector<char>> encryption_key;
+        std::optional<std::vector<char>> encryption_key;
         if (config.metadata_mode == realm::SyncClientConfig::MetadataMode::Encryption) {
-            encryption_key = realm::keychain::metadata_realm_encryption_key(false);
+            encryption_key = realm::keychain::get_existing_metadata_realm_key();
         }
         realm::SyncMetadataManager metadata_manager(sfm.metadata_path(),
                                                     encryption_key != realm::util::none,
@@ -213,7 +226,9 @@ RLMUser *RLMDummyUser() {
     }
 
     // Creating an app reads the fake cached user
-    RLMApp *app = [RLMApp appWithId:@"dummy"];
+    RLMAppConfiguration *config = [RLMAppConfiguration new];
+    config.transport = [NoOpTransport new];
+    RLMApp *app = [RLMApp appWithId:@"dummy" configuration:config];
     return app.allUsers.allValues.firstObject;
 }
 

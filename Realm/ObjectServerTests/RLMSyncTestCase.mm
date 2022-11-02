@@ -30,19 +30,13 @@
 #import "RLMUtil.hpp"
 #import "RLMApp_Private.hpp"
 #import "RLMChildProcessEnvironment.h"
+#import "RLMRealmUtil.hpp"
 
 #import <realm/object-store/sync/sync_manager.hpp>
 #import <realm/object-store/sync/sync_session.hpp>
 #import <realm/object-store/sync/sync_user.hpp>
 
 #if TARGET_OS_OSX
-
-@interface RealmServer : NSObject
-+ (RealmServer *)shared;
-+ (bool)haveServer;
-- (NSString *)createAppAndReturnError:(NSError **)error;
-- (NSString *)createAppWithQueryableFields:(NSArray *)queryableFields error:(NSError **)error;
-@end
 
 // Set this to 1 if you want the test ROS instance to log its debug messages to console.
 #define LOG_ROS_OUTPUT 0
@@ -83,7 +77,6 @@
     }
 }
 @end
-
 
 static NSURL *syncDirectoryForChildProcess() {
     NSString *path = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES)[0];
@@ -131,7 +124,7 @@ static NSURL *syncDirectoryForChildProcess() {
             XCTAssertNil(error);
             [expectation fulfill];
         }];
-        [self waitForExpectationsWithTimeout:4.0 handler:nil];
+        [self waitForExpectationsWithTimeout:20.0 handler:nil];
     }
     return [RLMCredentials credentialsWithEmail:name
                                        password:@"password"];
@@ -175,6 +168,17 @@ static NSURL *syncDirectoryForChildProcess() {
 - (RLMRealm *)openRealmForPartitionValue:(nullable id<RLMBSON>)partitionValue user:(RLMUser *)user {
     return [self openRealmForPartitionValue:partitionValue
                                        user:user
+                            clientResetMode:RLMClientResetModeRecoverUnsyncedChanges
+                              encryptionKey:nil
+                                 stopPolicy:RLMSyncStopPolicyAfterChangesUploaded];
+}
+
+- (RLMRealm *)openRealmForPartitionValue:(nullable id<RLMBSON>)partitionValue
+                                    user:(RLMUser *)user
+                         clientResetMode:(RLMClientResetMode)clientResetMode {
+    return [self openRealmForPartitionValue:partitionValue
+                                       user:user
+                            clientResetMode:clientResetMode
                               encryptionKey:nil
                                  stopPolicy:RLMSyncStopPolicyAfterChangesUploaded];
 }
@@ -183,8 +187,21 @@ static NSURL *syncDirectoryForChildProcess() {
                                     user:(RLMUser *)user
                            encryptionKey:(nullable NSData *)encryptionKey
                               stopPolicy:(RLMSyncStopPolicy)stopPolicy {
+    return [self openRealmForPartitionValue:partitionValue
+                                       user:user
+                            clientResetMode:RLMClientResetModeRecoverUnsyncedChanges
+                              encryptionKey:encryptionKey
+                                 stopPolicy:stopPolicy];
+}
+
+- (RLMRealm *)openRealmForPartitionValue:(nullable id<RLMBSON>)partitionValue
+                                    user:(RLMUser *)user
+                         clientResetMode:(RLMClientResetMode)clientResetMode
+                           encryptionKey:(nullable NSData *)encryptionKey
+                              stopPolicy:(RLMSyncStopPolicy)stopPolicy {
     RLMRealm *realm = [self immediatelyOpenRealmForPartitionValue:partitionValue
                                                              user:user
+                                                  clientResetMode:clientResetMode
                                                     encryptionKey:encryptionKey
                                                        stopPolicy:stopPolicy];
     [self waitForDownloadsForRealm:realm];
@@ -208,7 +225,7 @@ static NSURL *syncDirectoryForChildProcess() {
         r = realm;
         [ex fulfill];
     }];
-    [self waitForExpectationsWithTimeout:10.0 handler:nil];
+    [self waitForExpectationsWithTimeout:30.0 handler:nil];
     // Ensure that the block does not retain the Realm, as it may not be dealloced
     // immediately and so would extend the lifetime of the Realm an inconsistent amount
     auto realm = r;
@@ -227,13 +244,22 @@ static NSURL *syncDirectoryForChildProcess() {
         error = err;
         [ex fulfill];
     }];
-    [self waitForExpectationsWithTimeout:10.0 handler:nil];
+    [self waitForExpectationsWithTimeout:30.0 handler:nil];
     return error;
 }
 
 - (RLMRealm *)immediatelyOpenRealmForPartitionValue:(NSString *)partitionValue user:(RLMUser *)user {
     return [self immediatelyOpenRealmForPartitionValue:partitionValue
                                                   user:user
+                                       clientResetMode:RLMClientResetModeRecoverUnsyncedChanges];
+}
+
+- (RLMRealm *)immediatelyOpenRealmForPartitionValue:(NSString *)partitionValue
+                                               user:(RLMUser *)user
+                                    clientResetMode:(RLMClientResetMode)clientResetMode {
+    return [self immediatelyOpenRealmForPartitionValue:partitionValue
+                                                  user:user
+                                       clientResetMode:clientResetMode
                                          encryptionKey:nil
                                             stopPolicy:RLMSyncStopPolicyAfterChangesUploaded];
 }
@@ -242,7 +268,19 @@ static NSURL *syncDirectoryForChildProcess() {
                                                user:(RLMUser *)user
                                       encryptionKey:(NSData *)encryptionKey
                                          stopPolicy:(RLMSyncStopPolicy)stopPolicy {
-    auto c = [user configurationWithPartitionValue:partitionValue];
+    return [self immediatelyOpenRealmForPartitionValue:partitionValue
+                                                  user:user
+                                       clientResetMode:RLMClientResetModeRecoverUnsyncedChanges
+                                         encryptionKey:encryptionKey
+                                            stopPolicy:RLMSyncStopPolicyAfterChangesUploaded];
+}
+
+- (RLMRealm *)immediatelyOpenRealmForPartitionValue:(NSString *)partitionValue
+                                               user:(RLMUser *)user
+                                    clientResetMode:(RLMClientResetMode)clientResetMode
+                                      encryptionKey:(NSData *)encryptionKey
+                                         stopPolicy:(RLMSyncStopPolicy)stopPolicy {
+    auto c = [user configurationWithPartitionValue:partitionValue clientResetMode:clientResetMode];
     c.encryptionKey = encryptionKey;
     c.objectClasses = @[Dog.self, Person.self, HugeSyncObject.self, RLMSetSyncObject.self,
                         RLMArraySyncObject.self, UUIDPrimaryKeyObject.self, StringPrimaryKeyObject.self,
@@ -266,7 +304,7 @@ static NSURL *syncDirectoryForChildProcess() {
         user = u;
         [expectation fulfill];
     }];
-    [self waitForExpectations:@[expectation] timeout:4.0];
+    [self waitForExpectations:@[expectation] timeout:20.0];
     XCTAssertTrue(user.state == RLMUserStateLoggedIn, @"User should have been valid, but wasn't");
     return user;
 }
@@ -277,7 +315,7 @@ static NSURL *syncDirectoryForChildProcess() {
         XCTAssertNil(error);
         [expectation fulfill];
     }];
-    [self waitForExpectations:@[expectation] timeout:4.0];
+    [self waitForExpectations:@[expectation] timeout:20.0];
     XCTAssertTrue(user.state == RLMUserStateLoggedOut, @"User should have been logged out, but wasn't");
 }
 
@@ -286,7 +324,7 @@ static NSURL *syncDirectoryForChildProcess() {
     NSDictionary *payload = @{
         @"aud": appId,
         @"sub": @"someUserId",
-        @"exp": @1661896476,
+        @"exp": @1961896476,
         @"user_data": @{
             @"name": @"Foo Bar",
             @"occupation": @"firefighter"
@@ -358,7 +396,7 @@ static NSURL *syncDirectoryForChildProcess() {
         XCTFail(@"Download waiter did not queue; session was invalid or errored out.");
         return;
     }
-    [self waitForExpectations:@[ex] timeout:20.0];
+    [self waitForExpectations:@[ex] timeout:60.0];
     if (error) {
         *error = theError;
     }
@@ -377,7 +415,7 @@ static NSURL *syncDirectoryForChildProcess() {
         XCTFail(@"Upload waiter did not queue; session was invalid or errored out.");
         return;
     }
-    [self waitForExpectations:@[ex] timeout:20.0];
+    [self waitForExpectations:@[ex] timeout:60.0];
     if (error)
         *error = completionError;
 }
@@ -395,7 +433,7 @@ static NSURL *syncDirectoryForChildProcess() {
         XCTFail(@"Download waiter did not queue; session was invalid or errored out.");
         return;
     }
-    [self waitForExpectations:@[ex] timeout:20.0];
+    [self waitForExpectations:@[ex] timeout:60.0];
     if (error) {
         *error = completionError;
     }
@@ -659,21 +697,21 @@ static NSURL *syncDirectoryForChildProcess() {
     return realm;
 }
 
+- (RLMUser *)flexibleSyncUser:(SEL)testSel {
+    return [self logInUserForCredentials:[self basicCredentialsWithName:NSStringFromSelector(testSel)
+                                                               register:YES
+                                                                    app:self.flexibleSyncApp]
+                                     app:self.flexibleSyncApp];
+}
+
 - (RLMRealm *)getFlexibleSyncRealm:(SEL)testSel {
-    RLMUser *user = [self logInUserForCredentials:[self basicCredentialsWithName:NSStringFromSelector(testSel)
-                                                                        register:YES
-                                                                             app:self.flexibleSyncApp]
-                                              app:self.flexibleSyncApp];
-    RLMRealm *realm = [self flexibleSyncRealmForUser:user];
+    RLMRealm *realm = [self flexibleSyncRealmForUser:[self flexibleSyncUser:testSel]];
     XCTAssertNotNil(realm);
     return realm;
 }
 
 - (RLMRealm *)openFlexibleSyncRealm:(SEL)testSel {
-    RLMUser *user = [self logInUserForCredentials:[self basicCredentialsWithName:NSStringFromSelector(testSel)
-                                                                        register:YES
-                                                                             app:self.flexibleSyncApp]
-                                              app:self.flexibleSyncApp];
+    RLMUser *user = [self flexibleSyncUser:testSel];
     RLMRealmConfiguration *config = [user flexibleSyncConfiguration];
     config.objectClasses = @[Dog.self,
                              Person.self];
@@ -698,15 +736,14 @@ static NSURL *syncDirectoryForChildProcess() {
                                                                              app:self.flexibleSyncApp]
                                               app:self.flexibleSyncApp];
     RLMRealmConfiguration *config = [user flexibleSyncConfiguration];
-    config.objectClasses = @[Dog.self,
-                             Person.self];
+    config.objectClasses = @[Dog.self, Person.self];
     RLMRealm *realm = [RLMRealm realmWithConfiguration:config error:nil];
 
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
     XCTAssertNotNil(subs);
 
     XCTestExpectation *ex = [self expectationWithDescription:@"state change complete"];
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                           subscriptionName:@"person_all"
                                      where:@"TRUEPREDICATE"];
@@ -719,7 +756,7 @@ static NSURL *syncDirectoryForChildProcess() {
     }];
 
     __block bool didComplete = false;
-    [self waitForExpectationsWithTimeout:20.0 handler:^(NSError *error) {
+    [self waitForExpectationsWithTimeout:60.0 handler:^(NSError *error) {
         didComplete = error == nil;
     }];
     if (didComplete) {
@@ -732,7 +769,7 @@ static NSURL *syncDirectoryForChildProcess() {
     XCTAssertNotNil(subs);
 
     XCTestExpectation *ex = [self expectationWithDescription:@"state changes"];
-    [subs write:^{
+    [subs update:^{
         block(subs);
     } onComplete:^(NSError* error) {
         if (error == nil) {

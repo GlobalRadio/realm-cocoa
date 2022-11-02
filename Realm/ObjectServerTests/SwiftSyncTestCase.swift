@@ -68,7 +68,7 @@ open class SwiftSyncTestCase: RLMSyncTestCase {
             XCTAssertNil(error)
             ex.fulfill()
         })
-        waitForExpectations(timeout: 4, handler: nil)
+        waitForExpectations(timeout: 40, handler: nil)
         return credentials
     }
 
@@ -79,9 +79,15 @@ open class SwiftSyncTestCase: RLMSyncTestCase {
 
     public func openRealm<T: BSON>(partitionValue: T,
                                    user: User,
+                                   clientResetMode: ClientResetMode? = .recoverUnsyncedChanges(),
                                    file: StaticString = #file,
                                    line: UInt = #line) throws -> Realm {
-        let config = user.configuration(partitionValue: partitionValue)
+        let config: Realm.Configuration
+        if clientResetMode != nil {
+            config = user.configuration(partitionValue: partitionValue, clientResetMode: clientResetMode!)
+        } else {
+            config = user.configuration(partitionValue: partitionValue)
+        }
         return try openRealm(configuration: config)
     }
 
@@ -126,7 +132,7 @@ open class SwiftSyncTestCase: RLMSyncTestCase {
             ex.fulfill()
         }
 
-        waitForExpectations(timeout: 10, handler: nil)
+        waitForExpectations(timeout: 20, handler: nil)
         return theUser
     }
 
@@ -188,7 +194,7 @@ open class SwiftSyncTestCase: RLMSyncTestCase {
             let config = user.configuration(testName: partitionValue)
 
             let realm = try openRealm(configuration: config)
-            try! realm.write {
+            try realm.write {
                 for _ in 0..<SwiftSyncTestCase.bigObjectCount {
                     realm.add(SwiftHugeSyncObject.create())
                 }
@@ -237,14 +243,25 @@ open class SwiftSyncTestCase: RLMSyncTestCase {
         }
     }
 
+    public func updateAllPeopleSubscription(_ subscriptions: SyncSubscriptionSet) {
+        let expectation = expectation(description: "register subscription")
+        subscriptions.update {
+            subscriptions.append(QuerySubscription<SwiftPerson>(name: "all_people"))
+        } onComplete: { error in
+            XCTAssertNil(error)
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 15.0)
+    }
+
     public func writeToFlxRealm(_ block: @escaping (Realm) throws -> Void) throws {
         let realm = try flexibleSyncRealm()
         let subscriptions = realm.subscriptions
         XCTAssertNotNil(subscriptions)
         let ex = expectation(description: "state change complete")
-        subscriptions.write({
-            subscriptions.append(QuerySubscription<SwiftPerson>(where: "TRUEPREDICATE"))
-            subscriptions.append(QuerySubscription<SwiftTypesSyncObject>(where: "TRUEPREDICATE"))
+        subscriptions.update({
+            subscriptions.append(QuerySubscription<SwiftPerson>())
+            subscriptions.append(QuerySubscription<SwiftTypesSyncObject>())
         }, onComplete: { error in
             XCTAssertNil(error)
             ex.fulfill()
@@ -254,10 +271,22 @@ open class SwiftSyncTestCase: RLMSyncTestCase {
         waitForExpectations(timeout: 20.0, handler: nil)
         try block(realm)
     }
+
+    // MARK: - Mongo Client
+
+    public func removeAllFromCollection(_ collection: MongoCollection) {
+        let deleteEx = expectation(description: "Delete all from Mongo collection")
+        collection.deleteManyDocuments(filter: [:]) { result in
+            if case .failure = result {
+                XCTFail("Should delete")
+            }
+            deleteEx.fulfill()
+        }
+        wait(for: [deleteEx], timeout: 30.0)
+    }
 }
 
-#if swift(>=5.5.2) && canImport(_Concurrency)
-
+#if swift(>=5.6) && canImport(_Concurrency)
 @available(macOS 12.0, *)
 extension SwiftSyncTestCase {
     public func basicCredentials(usernameSuffix: String = "", app: App? = nil) async throws -> Credentials {
@@ -267,7 +296,22 @@ extension SwiftSyncTestCase {
         try await (app ?? self.app).emailPasswordAuth.registerUser(email: email, password: password)
         return credentials
     }
-}
 
-#endif // swift(>=5.5)
+    // MARK: - Flexible Sync Async Use Cases
+
+    public func flexibleSyncConfig() async throws -> Realm.Configuration {
+        var config = (try await self.flexibleSyncApp.login(credentials: basicCredentials(app: flexibleSyncApp))).flexibleSyncConfiguration()
+        if config.objectTypes == nil {
+            config.objectTypes = [SwiftPerson.self,
+                                  SwiftTypesSyncObject.self]
+        }
+        return config
+    }
+
+    public func flexibleSyncRealm() async throws -> Realm {
+        let realm = try await Realm(configuration: flexibleSyncConfig())
+        return realm
+    }
+}
+#endif // swift(>=5.6)
 #endif // os(macOS)

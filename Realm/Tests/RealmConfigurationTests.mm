@@ -104,7 +104,7 @@
     configuration.readOnly = false;
     XCTAssertEqual(configuration.schemaMode, realm::SchemaMode::Automatic);
     configuration.deleteRealmIfMigrationNeeded = true;
-    XCTAssertEqual(configuration.schemaMode, realm::SchemaMode::ResetFile);
+    XCTAssertEqual(configuration.schemaMode, realm::SchemaMode::SoftResetFile);
 
     configuration.deleteRealmIfMigrationNeeded = false;
     XCTAssertEqual(configuration.schemaMode, realm::SchemaMode::Automatic);
@@ -181,7 +181,7 @@
     RLMRealmConfiguration.defaultConfiguration = config;
     @autoreleasepool {
         RLMRealm *realm = RLMRealm.defaultRealm;
-        NSString *realmPath = @(realm.configuration.config.path.c_str());
+        NSString *realmPath = @(realm.configuration.path.c_str());
         XCTAssertTrue([realmPath hasSuffix:config.inMemoryIdentifier]);
         XCTAssertTrue([realmPath hasPrefix:NSTemporaryDirectory()]);
     }
@@ -190,7 +190,7 @@
     RLMRealmConfiguration.defaultConfiguration = config;
     @autoreleasepool {
         RLMRealm *realm = RLMRealm.defaultRealm;
-        NSString *realmPath = @(realm.configuration.config.path.c_str());
+        NSString *realmPath = @(realm.configuration.path.c_str());
         XCTAssertEqual(1U, [RLMRealm schemaVersionAtURL:[NSURL fileURLWithPath:realmPath] encryptionKey:nil error:nil]);
     }
 

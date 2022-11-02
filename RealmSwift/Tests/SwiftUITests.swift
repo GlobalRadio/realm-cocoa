@@ -24,8 +24,10 @@ import Combine
 
 class SwiftUIObject: Object, ObjectKeyIdentifiable {
     @Persisted var list: RealmSwift.List<SwiftBoolObject>
+    @Persisted var set: RealmSwift.MutableSet<SwiftBoolObject>
     @Persisted var map: Map<String, SwiftBoolObject?>
     @Persisted var primitiveList: RealmSwift.List<Int>
+    @Persisted var primitiveSet: RealmSwift.MutableSet<Int>
     @Persisted var primitiveMap: Map<String, Int>
     @Persisted var str = "foo"
     @Persisted var int = 0
@@ -105,6 +107,23 @@ class SwiftUITests: TestCase {
         state.projectedValue.append(SwiftBoolObject())
         XCTAssertEqual(state.wrappedValue.count, 1)
     }
+    func testManagedListAppendFrozenObject() throws {
+        let listObj = SwiftUIObject()
+        var state = StateRealmObject(wrappedValue: listObj.list)
+        XCTAssertEqual(state.wrappedValue.count, 0)
+
+        let realm = inMemoryRealm(inMemoryIdentifier)
+        let obj = SwiftBoolObject()
+        try realm.write {
+            realm.add(listObj)
+            realm.add(obj)
+        }
+        let frozen = obj.freeze()
+
+        state.update()
+        state.projectedValue.append(frozen)
+        XCTAssertEqual(state.wrappedValue.count, 1)
+    }
     func testManagedUnmanagedListRemovePrimitive() throws {
         let object = SwiftUIObject()
         let state = StateRealmObject(wrappedValue: object.primitiveList)
@@ -144,10 +163,132 @@ class SwiftUITests: TestCase {
         state.projectedValue.append(SwiftBoolObject())
         XCTAssertEqual(state.wrappedValue.count, 1)
 
-        XCTAssertEqual(state.wrappedValue.count, 1)
-
         state.projectedValue.remove(at: 0)
         XCTAssertEqual(state.wrappedValue.count, 0)
+    }
+
+    // MARK: - MutableSet Operations
+
+    func testManagedUnmanagedMutableSetInsertPrimitive() throws {
+        let object = SwiftUIObject()
+        let state = StateRealmObject(wrappedValue: object.primitiveSet)
+        XCTAssertEqual(state.wrappedValue.count, 0)
+        state.projectedValue.insert(1)
+        XCTAssertEqual(state.wrappedValue.count, 1)
+
+        let realm = inMemoryRealm(inMemoryIdentifier)
+        try realm.write { realm.add(object) }
+
+        state.projectedValue.insert(2)
+        XCTAssertEqual(state.wrappedValue.count, 2)
+    }
+    func testManagedUnmanagedMutableSetInsertUnmanagedObject() throws {
+        let object = SwiftUIObject()
+        let state = StateRealmObject(wrappedValue: object.set)
+        XCTAssertEqual(state.wrappedValue.count, 0)
+        state.projectedValue.insert(SwiftBoolObject())
+        XCTAssertEqual(state.wrappedValue.count, 1)
+
+        let realm = inMemoryRealm(inMemoryIdentifier)
+        try realm.write { realm.add(object) }
+
+        state.projectedValue.insert(SwiftBoolObject())
+        XCTAssertEqual(state.wrappedValue.count, 2)
+    }
+    func testManagedMutableSetInsertUnmanagedObservedObject() throws {
+        let object = SwiftUIObject()
+        var state = StateRealmObject(wrappedValue: object.set)
+        XCTAssertEqual(state.wrappedValue.count, 0)
+
+        let realm = inMemoryRealm(inMemoryIdentifier)
+        try realm.write { realm.add(object) }
+
+        state.update()
+        state.projectedValue.insert(SwiftBoolObject())
+        XCTAssertEqual(state.wrappedValue.count, 1)
+    }
+    func testManagedMutableSetInsertFrozenObject() throws {
+        let object = SwiftUIObject()
+        var state = StateRealmObject(wrappedValue: object.set)
+        XCTAssertEqual(state.wrappedValue.count, 0)
+
+        let realm = inMemoryRealm(inMemoryIdentifier)
+        let obj = SwiftBoolObject()
+        try realm.write {
+            realm.add(object)
+            realm.add(obj)
+        }
+        let frozen = obj.freeze()
+        state.update()
+        state.projectedValue.insert(frozen)
+        XCTAssertEqual(state.wrappedValue.count, 1)
+    }
+    func testMutableSetRemovePrimitive() throws {
+        let object = SwiftUIObject()
+        let state = StateRealmObject(wrappedValue: object.primitiveSet)
+        XCTAssertEqual(state.wrappedValue.count, 0)
+        state.projectedValue.insert(1)
+        XCTAssertEqual(state.wrappedValue.count, 1)
+
+        let realm = inMemoryRealm(inMemoryIdentifier)
+        try realm.write { realm.add(object) }
+
+        state.projectedValue.insert(2)
+        XCTAssertEqual(state.wrappedValue.count, 2)
+
+        state.projectedValue.remove(1)
+        XCTAssertEqual(state.wrappedValue.count, 1)
+    }
+    func testUnmanagedMutableSetRemoveUnmanagedObject() throws {
+        let object = SwiftUIObject()
+        let state = StateRealmObject(wrappedValue: object.set)
+        XCTAssertEqual(state.wrappedValue.count, 0)
+        let obj = SwiftBoolObject()
+        state.projectedValue.insert(obj)
+        XCTAssertEqual(state.wrappedValue.count, 1)
+        state.projectedValue.remove(obj)
+        XCTAssertEqual(state.wrappedValue.count, 0)
+    }
+    func testManagedMutableSetRemoveUnmanagedObject() throws {
+        let object = SwiftUIObject()
+        let realm = inMemoryRealm(inMemoryIdentifier)
+        try realm.write { realm.add(object) }
+        let state = StateRealmObject(wrappedValue: object.set)
+        XCTAssertEqual(state.wrappedValue.count, 0)
+        let obj = SwiftBoolObject()
+        state.projectedValue.insert(obj)
+        XCTAssertEqual(state.wrappedValue.count, 1)
+        XCTAssertNotNil(obj.realm)
+        state.projectedValue.remove(obj)
+        XCTAssertEqual(state.wrappedValue.count, 0)
+    }
+
+    func testManagedMutableSetRemoveObservedObject() throws {
+        let object = SwiftUIObject()
+        var state = StateRealmObject(wrappedValue: object.set)
+        XCTAssertEqual(state.wrappedValue.count, 0)
+
+        let realm = inMemoryRealm(inMemoryIdentifier)
+        try realm.write { realm.add(object) }
+
+        state.update()
+        let obj = SwiftBoolObject()
+        let objState = StateRealmObject(wrappedValue: obj)
+
+        var hit = 0
+        // This will append an observer to SwiftUIKVO
+        let cancellable = objState._publisher
+            .sink { _ in
+            } receiveValue: { _ in
+                hit += 1
+            }
+        objState.wrappedValue.boolCol = true
+        XCTAssertEqual(hit, 1)
+        state.projectedValue.insert(objState.wrappedValue)
+        XCTAssertEqual(state.wrappedValue.count, 1)
+        state.projectedValue.remove(objState.wrappedValue)
+        XCTAssertEqual(state.wrappedValue.count, 0)
+        cancellable.cancel()
     }
 
     // MARK: - Map Operations
@@ -236,8 +377,6 @@ class SwiftUITests: TestCase {
         state.projectedValue.set(object: SwiftBoolObject(), for: "one")
         XCTAssertEqual(state.wrappedValue.count, 1)
 
-        XCTAssertEqual(state.wrappedValue.count, 1)
-
         state.projectedValue.set(object: nil, for: "one")
         XCTAssertEqual(state.wrappedValue.count, 0)
     }
@@ -304,7 +443,6 @@ class SwiftUITests: TestCase {
         state.projectedValue.remove(object)
         XCTAssertEqual(state.wrappedValue.count, 0)
     }
-    #if swift(>=5.5)
     func testSwiftQuerySyntax() throws {
         let realm = inMemoryRealm(inMemoryIdentifier)
         try realm.write {
@@ -320,7 +458,30 @@ class SwiftUITests: TestCase {
         XCTAssertEqual(filteredResults.wrappedValue.count, 2)
         XCTAssertEqual(filteredResults.wrappedValue[0].str, "antenna")
     }
-    #endif
+    func testResultsAppendFrozenObject() throws {
+        let state1 = ObservedResults(SwiftUIObject.self, configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        let object1 = SwiftUIObject()
+        XCTAssertEqual(state1.wrappedValue.count, 0)
+        state1.projectedValue.append(object1)
+        XCTAssertEqual(state1.wrappedValue.count, 1)
+        state1.projectedValue.append(object1)
+        XCTAssertEqual(state1.wrappedValue.count, 1)
+        let state2 = ObservedResults(SwiftUIObject.self, configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        for item in state1.wrappedValue {
+            XCTAssert(item.isFrozen)
+            state2.append(item)
+        }
+        XCTAssertEqual(state1.wrappedValue.count, 1)
+        let realm = inMemoryRealm(inMemoryIdentifier)
+        let object2 = SwiftUIObject()
+        try! realm.write {
+            realm.add(object2)
+        }
+        let frozenObj = object2.freeze()
+        state2.append(frozenObj)
+        XCTAssertEqual(state1.wrappedValue.count, 2)
+        XCTAssertEqual(state2.wrappedValue.count, 2)
+    }
     // MARK: Object Operations
     func testUnmanagedObjectModification() throws {
         let state = StateRealmObject(wrappedValue: SwiftUIObject())
@@ -368,7 +529,6 @@ class SwiftUITests: TestCase {
         XCTAssertEqual(binding.wrappedValue, "baz")
     }
 
-#if swift(>=5.5)
     func testStateRealmObjectKVO() throws {
         @StateRealmObject var object = SwiftUIObject()
         var hit = 0
@@ -395,34 +555,6 @@ class SwiftUITests: TestCase {
         cancellable.cancel()
         XCTAssertEqual(hit, 2)
     }
-#else
-    func testStateRealmObjectKVO() throws {
-        let object = StateRealmObject(wrappedValue: SwiftUIObject())
-        var hit = 0
-
-        let cancellable = object._publisher
-            .sink { _ in
-            } receiveValue: { _ in
-                hit += 1
-            }
-        XCTAssertEqual(hit, 0)
-        object.wrappedValue.int += 1
-        XCTAssertEqual(hit, 1)
-        XCTAssertNotNil(object.wrappedValue.observationInfo)
-        let realm = try Realm()
-        try realm.write {
-            realm.add(object.wrappedValue)
-        }
-        XCTAssertEqual(hit, 1)
-        XCTAssertNil(object.wrappedValue.observationInfo)
-        try realm.write {
-            object.wrappedValue.thaw()!.int += 1
-        }
-        XCTAssertEqual(hit, 2)
-        cancellable.cancel()
-        XCTAssertEqual(hit, 2)
-    }
-#endif
 
     // MARK: - Projection ObservedResults Operations
     func testResultsAppendProjection() throws {
@@ -451,7 +583,6 @@ class SwiftUITests: TestCase {
         XCTAssertEqual(state.wrappedValue.count, 0)
     }
 
-#if swift(>=5.5)
     func testProjectionStateRealmObjectKVO() throws {
         @StateRealmObject var projection = UIElementsProjection(projecting: SwiftUIObject())
         var hit = 0
@@ -478,34 +609,6 @@ class SwiftUITests: TestCase {
         cancellable.cancel()
         XCTAssertEqual(hit, 2)
     }
-#else
-    func testProjectionStateRealmObjectKVO() throws {
-        let projection = StateRealmObject(wrappedValue: UIElementsProjection(projecting: SwiftUIObject()))
-        var hit = 0
-
-        let cancellable = projection._publisher
-            .sink { _ in
-            } receiveValue: { _ in
-                hit += 1
-            }
-        XCTAssertEqual(hit, 0)
-        projection.wrappedValue.counter += 1
-        XCTAssertEqual(hit, 1)
-        XCTAssertNotNil(projection.wrappedValue.rootObject.observationInfo)
-        let realm = try Realm()
-        try realm.write {
-            realm.add(projection.wrappedValue.rootObject)
-        }
-        XCTAssertEqual(hit, 1)
-        XCTAssertNil(projection.wrappedValue.rootObject.observationInfo)
-        try realm.write {
-            projection.wrappedValue.thaw()!.counter += 1
-        }
-        XCTAssertEqual(hit, 2)
-        cancellable.cancel()
-        XCTAssertEqual(hit, 2)
-    }
-#endif
 
     func testProjectionDelete() throws {
         let results = ObservedResults(UIElementsProjection.self,
@@ -539,6 +642,223 @@ class SwiftUITests: TestCase {
         managedBinding.wrappedValue = "baz"
         XCTAssertEqual(projection.label, "baz")
         XCTAssertEqual(binding.wrappedValue, "baz")
+    }
+
+    // MARK: - ObservedSectionedResults
+
+    func testObservedSectionedResults() throws {
+        let fullResults = ObservedSectionedResults(SwiftUIObject.self,
+                                                   sectionKeyPath: \.str,
+                                                   configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(fullResults.wrappedValue.count, 0)
+        let realm = inMemoryRealm(inMemoryIdentifier)
+        try realm.write {
+            let object = SwiftUIObject()
+            object.str = "abc"
+            object.int = 1
+            // add another default inited object for filter comparison
+            realm.add(object)
+        }
+        XCTAssertEqual(fullResults.wrappedValue.count, 1)
+        XCTAssertEqual(fullResults.wrappedValue[0].key, "abc")
+
+        try realm.write {
+            let object = SwiftUIObject()
+            object.str = "def"
+            object.int = 1
+            // add another default inited object for filter comparison
+            realm.add(object)
+        }
+
+        var filteredResults = ObservedSectionedResults(SwiftUIObject.self,
+                                                       sectionKeyPath: \.str,
+                                                       filter: NSPredicate(format: "str = %@", "def"),
+                                                       configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(filteredResults.wrappedValue.count, 1)
+        XCTAssertEqual(filteredResults.wrappedValue[0].key, "def")
+
+        filteredResults = ObservedSectionedResults(SwiftUIObject.self,
+                                                   sectionKeyPath: \.str,
+                                                   where: { $0.str == "def" },
+                                                   configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(filteredResults.wrappedValue.count, 1)
+        XCTAssertEqual(filteredResults.wrappedValue[0].key, "def")
+        fullResults.where = { $0.str == "def" }
+        XCTAssertEqual(fullResults.wrappedValue.count, 1)
+        XCTAssertEqual(fullResults.wrappedValue[0].key, "def")
+        fullResults.filter = NSPredicate(format: "str != %@", "def")
+        XCTAssertEqual(fullResults.wrappedValue.count, 1)
+        XCTAssertEqual(fullResults.wrappedValue[0].key, "abc")
+    }
+
+    func testObservedSectionedResultsWithProjection() throws {
+        let fullResults = ObservedSectionedResults(UIElementsProjection.self,
+                                                   sectionKeyPath: \.label,
+                                                   configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(fullResults.wrappedValue.count, 0)
+        let realm = inMemoryRealm(inMemoryIdentifier)
+        try realm.write {
+            let object = SwiftUIObject()
+            object.str = "abc"
+            object.int = 1
+            // add another default inited object for filter comparison
+            realm.add(object)
+        }
+        XCTAssertEqual(fullResults.wrappedValue.count, 1)
+        XCTAssertEqual(fullResults.wrappedValue[0].key, "abc")
+
+        try realm.write {
+            let object = SwiftUIObject()
+            object.str = "def"
+            object.int = 1
+            // add another default inited object for filter comparison
+            realm.add(object)
+        }
+
+        let filteredResults = ObservedSectionedResults(UIElementsProjection.self,
+                                                       sectionKeyPath: \.label,
+                                                       filter: NSPredicate(format: "str = %@", "def"),
+                                                       configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(filteredResults.wrappedValue.count, 1)
+        XCTAssertEqual(filteredResults.wrappedValue[0].key, "def")
+    }
+
+    func testAllObservedSectionedResultsConstructors() throws {
+        let realm = inMemoryRealm(inMemoryIdentifier)
+        let object1 = SwiftUIObject()
+        let object2 = SwiftUIObject()
+        try realm.write {
+            object1.str = "foo"
+            realm.add(object1)
+            object2.str = "bar"
+            realm.add(object2)
+        }
+        // Projections with `sectionKeyPath`
+        var projectionSectionedResults = ObservedSectionedResults(UIElementsProjection.self,
+                                                                  sectionKeyPath: \.label,
+                                                                  configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue.count, 2)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue.allKeys, ["bar", "foo"])
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[0].count, 1)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[0][0].label, "bar")
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[1].count, 1)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[1][0].label, "foo")
+
+        projectionSectionedResults = ObservedSectionedResults(UIElementsProjection.self,
+                                                              sectionKeyPath: \.label,
+                                                              sortDescriptors: [SortDescriptor.init(keyPath: "str", ascending: false)],
+                                                              configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue.count, 2)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue.allKeys, ["foo", "bar"])
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[0].count, 1)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[0][0].label, "foo")
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[1].count, 1)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[1][0].label, "bar")
+
+        projectionSectionedResults = ObservedSectionedResults(UIElementsProjection.self,
+                                                              sectionKeyPath: \.label,
+                                                              sortDescriptors: [SortDescriptor.init(keyPath: "str")],
+                                                              filter: NSPredicate(format: "str == 'foo'"),
+                                                              configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue.count, 1)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue.allKeys, ["foo"])
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[0].count, 1)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[0][0].label, "foo")
+
+        // Projections with `sectionBlock`
+        projectionSectionedResults = ObservedSectionedResults(UIElementsProjection.self,
+                                                              sectionBlock: { $0.label.first.map(String.init(_:)) ?? "" },
+                                                              sortDescriptors: [SortDescriptor.init(keyPath: "str")],
+                                                              configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue.count, 2)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue.allKeys, ["b", "f"])
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[0].count, 1)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[0][0].label, "bar")
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[1].count, 1)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[1][0].label, "foo")
+
+        projectionSectionedResults = ObservedSectionedResults(UIElementsProjection.self,
+                                                              sectionBlock: { $0.label.first.map(String.init(_:)) ?? "" },
+                                                              sortDescriptors: [SortDescriptor.init(keyPath: "str")],
+                                                              filter: NSPredicate(format: "str == 'foo'"),
+                                                              configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue.count, 1)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue.allKeys, ["f"])
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[0].count, 1)
+        XCTAssertEqual(projectionSectionedResults.wrappedValue[0][0].label, "foo")
+
+        // Objects with `sectionKeyPath`
+        var objectSectionedResults = ObservedSectionedResults(SwiftUIObject.self,
+                                                              sectionKeyPath: \.str,
+                                                              configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(objectSectionedResults.wrappedValue.count, 2)
+        XCTAssertEqual(objectSectionedResults.wrappedValue.allKeys, ["bar", "foo"])
+        XCTAssertEqual(objectSectionedResults.wrappedValue[0].count, 1)
+        XCTAssertEqual(objectSectionedResults.wrappedValue[0][0].str, "bar")
+        XCTAssertEqual(objectSectionedResults.wrappedValue[1].count, 1)
+        XCTAssertEqual(objectSectionedResults.wrappedValue[1][0].str, "foo")
+
+        objectSectionedResults = ObservedSectionedResults(SwiftUIObject.self,
+                                                          sectionKeyPath: \.str,
+                                                          sortDescriptors: [SortDescriptor.init(keyPath: "str", ascending: false)],
+                                                          configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(objectSectionedResults.wrappedValue.count, 2)
+        XCTAssertEqual(objectSectionedResults.wrappedValue.allKeys, ["foo", "bar"])
+        XCTAssertEqual(objectSectionedResults.wrappedValue[0].count, 1)
+        XCTAssertEqual(objectSectionedResults.wrappedValue[0][0].str, "foo")
+        XCTAssertEqual(objectSectionedResults.wrappedValue[1].count, 1)
+        XCTAssertEqual(objectSectionedResults.wrappedValue[1][0].str, "bar")
+
+        objectSectionedResults = ObservedSectionedResults(SwiftUIObject.self,
+                                                          sectionKeyPath: \.str,
+                                                          sortDescriptors: [SortDescriptor.init(keyPath: "str")],
+                                                          where: { $0.str == "foo" },
+                                                          configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(objectSectionedResults.wrappedValue.count, 1)
+        XCTAssertEqual(objectSectionedResults.wrappedValue.allKeys, ["foo"])
+        XCTAssertEqual(objectSectionedResults.wrappedValue[0].count, 1)
+        XCTAssertEqual(objectSectionedResults.wrappedValue[0][0].str, "foo")
+
+        objectSectionedResults = ObservedSectionedResults(SwiftUIObject.self,
+                                                          sectionKeyPath: \.str,
+                                                          sortDescriptors: [SortDescriptor.init(keyPath: "str")],
+                                                          filter: NSPredicate(format: "str == 'foo'"),
+                                                          configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(objectSectionedResults.wrappedValue.count, 1)
+        XCTAssertEqual(objectSectionedResults.wrappedValue.allKeys, ["foo"])
+        XCTAssertEqual(objectSectionedResults.wrappedValue[0].count, 1)
+        XCTAssertEqual(objectSectionedResults.wrappedValue[0][0].str, "foo")
+        // Objects with `sectionBlock`
+        objectSectionedResults = ObservedSectionedResults(SwiftUIObject.self,
+                                                          sectionBlock: { $0.str.first.map(String.init(_:)) ?? "" },
+                                                          sortDescriptors: [SortDescriptor.init(keyPath: "str")],
+                                                          configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(objectSectionedResults.wrappedValue.count, 2)
+        XCTAssertEqual(objectSectionedResults.wrappedValue.allKeys, ["b", "f"])
+        XCTAssertEqual(objectSectionedResults.wrappedValue[0].count, 1)
+        XCTAssertEqual(objectSectionedResults.wrappedValue[0][0].str, "bar")
+        XCTAssertEqual(objectSectionedResults.wrappedValue[1].count, 1)
+        XCTAssertEqual(objectSectionedResults.wrappedValue[1][0].str, "foo")
+
+        objectSectionedResults = ObservedSectionedResults(SwiftUIObject.self,
+                                                          sectionBlock: { $0.str.first.map(String.init(_:)) ?? "" },
+                                                          sortDescriptors: [SortDescriptor.init(keyPath: "str")],
+                                                          filter: NSPredicate(format: "str == 'foo'"),
+                                                          configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(objectSectionedResults.wrappedValue.count, 1)
+        XCTAssertEqual(objectSectionedResults.wrappedValue.allKeys, ["f"])
+        XCTAssertEqual(objectSectionedResults.wrappedValue[0].count, 1)
+        XCTAssertEqual(objectSectionedResults.wrappedValue[0][0].str, "foo")
+
+        objectSectionedResults = ObservedSectionedResults(SwiftUIObject.self,
+                                                          sectionBlock: { $0.str.first.map(String.init(_:)) ?? "" },
+                                                          sortDescriptors: [SortDescriptor.init(keyPath: "str")],
+                                                          where: { $0.str == "foo" },
+                                                          configuration: inMemoryRealm(inMemoryIdentifier).configuration)
+        XCTAssertEqual(objectSectionedResults.wrappedValue.count, 1)
+        XCTAssertEqual(objectSectionedResults.wrappedValue.allKeys, ["f"])
+        XCTAssertEqual(objectSectionedResults.wrappedValue[0].count, 1)
+        XCTAssertEqual(objectSectionedResults.wrappedValue[0][0].str, "foo")
     }
 }
 #endif

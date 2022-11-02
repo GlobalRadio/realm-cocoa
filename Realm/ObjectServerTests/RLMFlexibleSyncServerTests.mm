@@ -20,11 +20,11 @@
 #import "RLMSyncSubscription_Private.h"
 #import "RLMApp_Private.hpp"
 
-// These are defined in Swift. Importing the auto-generated header doesn't work
-// when building with SPM, so just redeclare the bits we need.
-@interface RealmServer : NSObject
-+ (RealmServer *)shared;
-- (NSString *)createAppWithQueryableFields:(NSArray *)queryableFields error:(NSError **)error;
+@interface TimeoutProxyServer : NSObject
+- (instancetype)initWithPort:(uint16_t)port targetPort:(uint16_t)targetPort;
+- (void)startAndReturnError:(NSError **)error;
+- (void)stop;
+@property (nonatomic) double delay;
 @end
 
 @interface RLMFlexibleSyncTests : RLMSyncTestCase
@@ -45,7 +45,9 @@
 }
 
 - (void)testGetSubscriptionsWhenLocalRealm {
-    RLMRealm *realm = [RLMRealm defaultRealm];
+    RLMRealmConfiguration *configuration = [RLMRealmConfiguration defaultConfiguration];
+    configuration.objectClasses = @[Person.self];
+    RLMRealm *realm = [RLMRealm realmWithConfiguration:configuration error:nil];
     RLMAssertThrowsWithReason(realm.subscriptions, @"This Realm was not configured with flexible sync");
 }
 
@@ -87,7 +89,7 @@
     XCTAssertEqual(subs.version, 0UL);
     XCTAssertEqual(subs.count, 0UL);
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                                      where:@"age > 15"];
     }];
@@ -103,7 +105,7 @@
     XCTAssertEqual(subs.version, 0UL);
     XCTAssertEqual(subs.count, 0UL);
 
-    [subs write:^{
+    [subs update:^{
     }];
 
     XCTAssertEqual(subs.version, 1UL);
@@ -114,7 +116,7 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                                      where:@"age > 15"];
     }];
@@ -133,7 +135,7 @@
     XCTAssertEqual(subs.version, 0UL);
     XCTAssertEqual(subs.count, 0UL);
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                                      where:@"firstName == %@ and lastName == %@", @"John", @"Doe"];
     }];
@@ -155,7 +157,7 @@
     XCTAssertEqual(subs.version, 0UL);
     XCTAssertEqual(subs.count, 0UL);
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                                  predicate:[NSPredicate predicateWithFormat:@"age == %d", 20]];
     }];
@@ -184,7 +186,7 @@
     XCTAssertEqual(realm.subscriptions.version, 0UL);
     XCTAssertEqual(realm.subscriptions.count, 0UL);
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                           subscriptionName:@"person_older_15"
                                      where:@"age > 15"];
@@ -200,7 +202,7 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                                      where:@"age > 15"];
         [subs addSubscriptionWithClassName:Person.className
@@ -215,14 +217,14 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                           subscriptionName:@"person_age"
                                      where:@"age > 15"];
         RLMAssertThrowsWithReason([subs addSubscriptionWithClassName:Person.className
                                                     subscriptionName:@"person_age"
                                                                where:@"age > 20"],
-                                  @"Cannot duplicate a subscription. If you meant to update the subscription please use the `update` method.");
+                                  @"A subscription named 'person_age' already exists. If you meant to update the existing subscription please use the `update` method.");
     }];
 
     XCTAssertEqual(subs.version, 1UL);
@@ -240,7 +242,7 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                                      where:@"age > 15"];
         [subs addSubscriptionWithClassName:Person.className
@@ -255,7 +257,7 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                           subscriptionName:@"person_age_1"
                                      where:@"age > 15"];
@@ -282,7 +284,7 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                           subscriptionName:@"person_age_1"
                                      where:@"age > 15"];
@@ -298,7 +300,7 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                                  predicate:[NSPredicate predicateWithFormat:@"age > %d", 15]];
         [subs addSubscriptionWithClassName:Person.className
@@ -314,13 +316,13 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                           subscriptionName:@"person_age_1"
                                      where:@"age > 15"];
     }];
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                           subscriptionName:@"person_age_2"
                                  predicate:[NSPredicate predicateWithFormat:@"age > %d", 20]];
@@ -340,7 +342,7 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                           subscriptionName:@"person_age_1"
                                      where:@"age > 15"];
@@ -352,7 +354,7 @@
     XCTAssertEqual(subs.version, 1UL);
     XCTAssertEqual(subs.count, 2UL);
 
-    [subs write:^{
+    [subs update:^{
         [subs removeSubscriptionWithName:@"person_age_1"];
     }];
 
@@ -370,7 +372,7 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                           subscriptionName:@"person_age_1"
                                      where:@"age > 15"];
@@ -385,7 +387,7 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                           subscriptionName:@"person_age"
                                      where:@"age > 15"];
@@ -400,7 +402,7 @@
     XCTAssertEqual(subs.version, 1UL);
     XCTAssertEqual(subs.count, 3UL);
 
-    [subs write:^{
+    [subs update:^{
         [subs removeSubscriptionWithClassName:Person.className where:@"firstName == %@", @"John"];
         [subs removeSubscriptionWithClassName:Person.className predicate:[NSPredicate predicateWithFormat:@"lastName == %@", @"Doe"]];
     }];
@@ -422,7 +424,7 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                           subscriptionName:@"person_age"
                                      where:@"age > 15"];
@@ -440,7 +442,7 @@
     RLMSyncSubscription *foundSubscription = [subs subscriptionWithName:@"person_age"];
     XCTAssertNotNil(foundSubscription);
 
-    [subs write:^{
+    [subs update:^{
         [subs removeSubscription:foundSubscription];
     }];
 
@@ -450,7 +452,7 @@
     RLMSyncSubscription *foundSubscription2 = [subs subscriptionWithName:@"person_firstname"];
     XCTAssertNotNil(foundSubscription2);
 
-    [subs write:^{
+    [subs update:^{
         [subs removeSubscription:foundSubscription2];
     }];
 
@@ -462,7 +464,7 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                           subscriptionName:@"person_age"
                                      where:@"age > 15"];
@@ -477,7 +479,7 @@
     XCTAssertEqual(subs.version, 1UL);
     XCTAssertEqual(subs.count, 3UL);
 
-    [subs write:^{
+    [subs update:^{
         [subs removeAllSubscriptions];
     }];
 
@@ -492,7 +494,7 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                           subscriptionName:@"person_age"
                                      where:@"age > 15"];
@@ -507,7 +509,7 @@
     XCTAssertEqual(subs.version, 1UL);
     XCTAssertEqual(subs.count, 3UL);
 
-    [subs write:^{
+    [subs update:^{
         [subs removeAllSubscriptionsWithClassName:Person.className];
     }];
 
@@ -517,7 +519,7 @@
     RLMSyncSubscription *foundSubscription = [subs subscriptionWithName:@"dog_name"];
     XCTAssertNotNil(foundSubscription);
 
-    [subs write:^{
+    [subs update:^{
         [subs removeAllSubscriptionsWithClassName:Dog.className];
     }];
 
@@ -529,7 +531,7 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                           subscriptionName:@"person_age"
                                      where:@"age > 15"];
@@ -541,7 +543,7 @@
     RLMSyncSubscription *foundSubscription = [subs subscriptionWithName:@"person_age"];
     XCTAssertNotNil(foundSubscription);
 
-    [subs write:^{
+    [subs update:^{
         [foundSubscription updateSubscriptionWhere:@"age > 20"];
     }];
 
@@ -558,7 +560,7 @@
     RLMRealm *realm = [self openFlexibleSyncRealm:_cmd];
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
-    [subs write:^{
+    [subs update:^{
         [subs addSubscriptionWithClassName:Person.className
                           subscriptionName:@"subscription_1"
                                      where:@"age > 15"];
@@ -578,7 +580,7 @@
     RLMSyncSubscriptionSet *subs = realm.subscriptions;
 
     double numberOfSubs = 100;
-    [subs write:^{
+    [subs update:^{
         for (int i = 0; i < numberOfSubs; ++i) {
             [subs addSubscriptionWithClassName:Person.className
                               subscriptionName:[NSString stringWithFormat:@"person_age_%d", i]
@@ -609,7 +611,7 @@
     XCTAssertNil(subs.lastObject);
 
     int numberOfSubs = 20;
-    [subs write:^{
+    [subs update:^{
         for (int i = 1; i <= numberOfSubs; ++i) {
             [subs addSubscriptionWithClassName:Person.className
                               subscriptionName:[NSString stringWithFormat:@"person_age_%d", i]
@@ -636,7 +638,7 @@
     XCTAssertEqual(subs.count, 0UL);
 
     int numberOfSubs = 20;
-    [subs write:^{
+    [subs update:^{
         for (int i = 1; i <= numberOfSubs; ++i) {
             [subs addSubscriptionWithClassName:Person.className
                               subscriptionName:[NSString stringWithFormat:@"person_age_%d", i]
@@ -899,14 +901,208 @@
     }];
     CHECK_COUNT(3, Person, realm);
 
-    auto ex = [self expectationWithDescription:@"should client reset"];
-    [self.flexibleSyncApp syncManager].errorHandler = ^(NSError * error, RLMSyncSession *) {
-        XCTAssertNotNil(error);
+    RLMObjectId *invalidObjectPK = [RLMObjectId objectId];
+    auto ex = [self expectationWithDescription:@"should revert write"];
+    self.flexibleSyncApp.syncManager.errorHandler = ^(NSError *error, RLMSyncSession *) {
+        RLMValidateError(error, RLMSyncErrorDomain, RLMSyncErrorWriteRejected,
+                         @"Client attempted a write that is outside of permissions or query filters; it has been reverted");
         [ex fulfill];
     };
     [realm transactionWithBlock:^{
-        [realm addObject:[[Person alloc] initWithPrimaryKey:[RLMObjectId objectId] age:10 firstName:@"Nic" lastName:@"Cages"]];
+        [realm addObject:[[Person alloc] initWithPrimaryKey:invalidObjectPK age:10 firstName:@"Nic" lastName:@"Cages"]];
     }];
     [self waitForExpectations:@[ex] timeout:20];
+    [self waitForDownloadsForRealm:realm];
+    CHECK_COUNT(3, Person, realm);
+}
+
+- (void)testFlexibleSyncInitialSubscription {
+    RLMUser *user = [self flexibleSyncUser:_cmd];
+    RLMRealmConfiguration *config = [user flexibleSyncConfigurationWithInitialSubscriptions:^(RLMSyncSubscriptionSet *subscriptions) {
+        [subscriptions addSubscriptionWithClassName:Person.className
+                                   subscriptionName:@"person_age"
+                                              where:@"TRUEPREDICATE"];
+    } rerunOnOpen:false];
+    config.objectClasses = @[Person.self];
+    RLMRealm *realm = [RLMRealm realmWithConfiguration:config error:nil];
+    XCTAssertEqual(realm.subscriptions.count, 1UL);
+}
+
+- (void)testFlexibleSyncInitialSubscriptionAwait {
+    bool didPopulate = [self populateData:^(RLMRealm *realm) {
+        [self createPeople:realm partition:_cmd];
+    }];
+    if (!didPopulate) {
+        return;
+    }
+
+    RLMUser *user = [self flexibleSyncUser:_cmd];
+    RLMRealmConfiguration *config = [user flexibleSyncConfigurationWithInitialSubscriptions:^(RLMSyncSubscriptionSet *subscriptions) {
+        [subscriptions addSubscriptionWithClassName:Person.className
+                                   subscriptionName:@"person_age"
+                                              where:@"age > 10 and partition == %@", NSStringFromSelector(_cmd)];
+    } rerunOnOpen:false];
+    config.objectClasses = @[Person.self];
+    XCTestExpectation *ex = [self expectationWithDescription:@"download-realm"];
+    [RLMRealm asyncOpenWithConfiguration:config
+                           callbackQueue:dispatch_get_main_queue()
+                                callback:^(RLMRealm *realm, NSError *error) {
+        XCTAssertNil(error);
+        XCTAssertEqual(realm.subscriptions.count, 1UL);
+        // Adding this sleep, because there seems to be a timing issue after this commit in baas
+        // https://github.com/10gen/baas/commit/64e75b3f1fe8a6f8704d1597de60f9dda401ccce,
+        // data take a little longer to be downloaded to the realm even though the
+        // sync client changed the subscription state to completed.
+        sleep(1);
+        CHECK_COUNT(11, Person, realm);
+        [ex fulfill];
+    }];
+    [self waitForExpectationsWithTimeout:30.0 handler:nil];
+}
+
+- (void)testFlexibleSyncInitialSubscriptionDoNotRerunOnOpen {
+    RLMUser *user = [self flexibleSyncUser:_cmd];
+    RLMRealmConfiguration *config = [user flexibleSyncConfigurationWithInitialSubscriptions:^(RLMSyncSubscriptionSet *subscriptions) {
+        [subscriptions addSubscriptionWithClassName:Person.className
+                                   subscriptionName:@"person_age"
+                                              where:@"age > 10 and partition == %@", NSStringFromSelector(_cmd)];
+    } rerunOnOpen:false];
+    config.objectClasses = @[Person.self];
+
+    @autoreleasepool {
+        RLMRealm *realm = [RLMRealm realmWithConfiguration:config error:nil];
+        XCTAssertEqual(realm.subscriptions.count, 1UL);
+    }
+
+    RLMRealm *realm = [RLMRealm realmWithConfiguration:config error:nil];
+    XCTAssertEqual(realm.subscriptions.count, 1UL);
+
+    [self dispatchAsyncAndWait:^{
+        RLMRealm *realm = [RLMRealm realmWithConfiguration:config error:nil];
+        XCTAssertEqual(realm.subscriptions.count, 1UL);
+    }];
+}
+
+- (void)testFlexibleSyncInitialSubscriptionRerunOnOpen {
+    bool didPopulate = [self populateData:^(RLMRealm *realm) {
+        [self createPeople:realm partition:_cmd];
+    }];
+    if (!didPopulate) {
+        return;
+    }
+
+    RLMUser *user = [self flexibleSyncUser:_cmd];
+
+    __block int openCount = 0;
+    RLMRealmConfiguration *config = [user flexibleSyncConfigurationWithInitialSubscriptions:^(RLMSyncSubscriptionSet *subscriptions) {
+        XCTAssertLessThan(openCount, 2);
+        int age = openCount == 0 ? 10 : 5;
+        [subscriptions addSubscriptionWithClassName:Person.className
+                                              where:@"age > %i and partition == %@", age, NSStringFromSelector(_cmd)];
+        ++openCount;
+    } rerunOnOpen:true];
+    config.objectClasses = @[Person.self];
+    XCTestExpectation *ex = [self expectationWithDescription:@"download-realm"];
+    [RLMRealm asyncOpenWithConfiguration:config
+                           callbackQueue:dispatch_get_main_queue()
+                                callback:^(RLMRealm *realm, NSError *error) {
+        XCTAssertNotNil(realm);
+        XCTAssertNil(error);
+        XCTAssertEqual(realm.subscriptions.count, 1UL);
+        // Adding this sleep, because there seems to be a timing issue after this commit in baas
+        // https://github.com/10gen/baas/commit/64e75b3f1fe8a6f8704d1597de60f9dda401ccce,
+        // data take a little longer to be downloaded to the realm even though the
+        // sync client changed the subscription state to completed.
+        sleep(1);
+        CHECK_COUNT(11, Person, realm);
+        [ex fulfill];
+    }];
+    [self waitForExpectationsWithTimeout:90.0 handler:nil];
+    XCTAssertEqual(openCount, 1);
+
+    __block RLMRealm *realm;
+    XCTestExpectation *ex2 = [self expectationWithDescription:@"download-realm-2"];
+    [RLMRealm asyncOpenWithConfiguration:config
+                           callbackQueue:dispatch_get_main_queue()
+                                callback:^(RLMRealm *r, NSError *error) {
+        realm = r;
+        XCTAssertNotNil(realm);
+        XCTAssertNil(error);
+        XCTAssertEqual(realm.subscriptions.count, 2UL);
+        CHECK_COUNT(16, Person, realm);
+        [ex2 fulfill];
+    }];
+    [self waitForExpectationsWithTimeout:90.0 handler:nil];
+    XCTAssertEqual(openCount, 2);
+
+    [self dispatchAsyncAndWait:^{
+        [RLMRealm realmWithConfiguration:config error:nil];
+        // Should not have called initial subscriptions despite rerunOnOpen being
+        // set as the Realm was already open
+        XCTAssertEqual(openCount, 2);
+    }];
+}
+
+- (void)testFlexibleSyncInitialOnConnectionTimeout {
+    TimeoutProxyServer *proxy = [[TimeoutProxyServer alloc] initWithPort:5678 targetPort:9090];
+    NSError *error;
+    [proxy startAndReturnError:&error];
+    XCTAssertNil(error);
+
+    RLMAppConfiguration *appConfig = [[RLMAppConfiguration alloc] initWithBaseURL:@"http://localhost:9090"
+                                                                        transport:[AsyncOpenConnectionTimeoutTransport new]
+                                                                     localAppName:nil
+                                                                  localAppVersion:nil
+                                                          defaultRequestTimeoutMS:60];
+    RLMApp *app = [RLMApp appWithId:self.flexibleSyncAppId configuration:appConfig];
+    RLMUser *user = [self logInUserForCredentials:[RLMCredentials anonymousCredentials] app:app];
+
+    RLMRealmConfiguration *config = [user flexibleSyncConfigurationWithInitialSubscriptions:^(RLMSyncSubscriptionSet *subscriptions) {
+        [subscriptions addSubscriptionWithClassName:Person.className
+                                              where:@"age > 10 and partition == %@", NSStringFromSelector(_cmd)];
+    } rerunOnOpen:true];
+    config.objectClasses = @[Person.class];
+    RLMSyncConfiguration *syncConfig = config.syncConfiguration;
+    syncConfig.cancelAsyncOpenOnNonFatalErrors = true;
+    config.syncConfiguration = syncConfig;
+
+    RLMSyncTimeoutOptions *timeoutOptions = [RLMSyncTimeoutOptions new];
+    timeoutOptions.connectTimeout = 1000.0;
+    app.syncManager.timeoutOptions = timeoutOptions;
+
+    // Set delay above the timeout so it should fail
+    proxy.delay = 2.0;
+
+    XCTestExpectation *ex = [self expectationWithDescription:@"async open"];
+    [RLMRealm asyncOpenWithConfiguration:config
+                           callbackQueue:dispatch_get_main_queue()
+                                callback:^(RLMRealm *realm, NSError *error) {
+        RLMValidateError(error, NSPOSIXErrorDomain, ETIMEDOUT,
+                         @"Sync connection was not fully established in time");
+        XCTAssertNil(realm);
+        [ex fulfill];
+    }];
+    [self waitForExpectationsWithTimeout:30.0 handler:nil];
+
+    [proxy stop];
+}
+
+- (void)testFlexibleSyncInitialSubscriptionThrowsError {
+    RLMUser *user = [self flexibleSyncUser:_cmd];
+    RLMRealmConfiguration *config = [user flexibleSyncConfigurationWithInitialSubscriptions:^(RLMSyncSubscriptionSet *subscriptions) {
+        [subscriptions addSubscriptionWithClassName:UUIDPrimaryKeyObject.className
+                                              where:@"strCol == %@", @"Tom"];
+    } rerunOnOpen:false];
+    config.objectClasses = @[UUIDPrimaryKeyObject.self];
+    XCTestExpectation *ex = [self expectationWithDescription:@"download-realm"];
+    [RLMRealm asyncOpenWithConfiguration:config
+                           callbackQueue:dispatch_get_main_queue()
+                                callback:^(RLMRealm *realm, NSError *error) {
+        RLMValidateError(error, RLMErrorDomain, RLMErrorSubscriptionFailed,
+                         @"Client provided query with bad syntax: unsupported query for table \"UUIDPrimaryKeyObject\": key \"strCol\" is not a queryable field");
+        XCTAssertNotNil(realm);
+        [ex fulfill];
+    }];
+    [self waitForExpectationsWithTimeout:30.0 handler:nil];
 }
 @end
